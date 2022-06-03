@@ -39,7 +39,7 @@
 #define KCOV_INIT_TRACE _IOR('c', 1, unsigned long)
 #define KCOV_ENABLE _IO('c', 100)
 #define KCOV_DISABLE _IO('c', 101)
-#define COVER_SIZE (64 << 12)
+#define COVER_SIZE (64 << 20)
 
 #define KCOV_TRACE_PC 0
 #define KCOV_TRACE_CMP 1
