@@ -3002,12 +3002,16 @@ int kvm_cpu_exec(CPUState *cpu)
     qatomic_set(&cpu->exit_request, 0);
     return ret;
 }
-int get_cov_kvm_cpu_exec(CPUState *cpu, int kcov_fd, unsigned long * kcov_cover, FILE * coverage_file, unsigned long kvm_intel_base,unsigned long * kcov_intel_cover)
+char kvm_intel_coverd[0x60000];
+char kvm_coverd[0xae000];
+
+int get_cov_kvm_cpu_exec(CPUState *cpu)
 {
     struct kvm_run *run = cpu->kvm_run;
     int ret, run_ret;
     unsigned long kcov_n;
-    int count = 0;
+    // int count = 0;
+    int cov;
     DPRINTF("kvm_cpu_exec()\n");
 
     if (kvm_arch_process_async_events(cpu)) {
@@ -3054,15 +3058,24 @@ int get_cov_kvm_cpu_exec(CPUState *cpu, int kcov_fd, unsigned long * kcov_cover,
 
         kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
 
-        count = 0;
+        // count = 0;
         for (int i = 0; i < kcov_n; i++) {
-            if (kcov_cover[i+1] >= kvm_intel_base && kcov_cover[i+1] < kvm_intel_base + 0x59797 + 0xa0){
-                kcov_intel_cover[count] = kcov_cover[i+1]-kvm_intel_base;
-                count++;
+            cov = (int)(kcov_cover[i+1]-kvm_intel_base);
+            if (cov >= 0 && cov < 0x59797 + 0xa0){
+                if (kvm_intel_coverd[cov] == 0){
+                    kvm_intel_coverd[cov] = 1;
+                    fprintf(kvm_intel_coverage_file,"0x%x\n",cov);
+                }
+            } else {
+                cov = (int)(kcov_cover[i+1]-kvm_base);
+                if (cov >= 0 && cov < 0xadf49 + 0xa0){
+                    if (kvm_coverd[cov] == 0){
+                        kvm_coverd[cov] = 1;
+                        fprintf(kvm_coverage_file,"0x%x\n",cov);
+                    }
+                } 
             }
         }
-        if (fwrite(kcov_intel_cover, sizeof(unsigned int), count, coverage_file) != count)
-            perror("fwrite"), exit(1);
 
         /* Disable coverage collection for the current thread. After this call
         * coverage can be enabled for a different thread.

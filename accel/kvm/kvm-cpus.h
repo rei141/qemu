@@ -32,9 +32,16 @@
 #define KCOV_TRACE_PC 0
 #define KCOV_TRACE_CMP 1
 
+extern int kcov_fd;
+extern unsigned long * kcov_cover;
+extern FILE * kvm_intel_coverage_file;
+extern FILE * kvm_coverage_file;
+extern unsigned long kvm_intel_base;
+extern unsigned long kvm_base;
+
 int kvm_init_vcpu(CPUState *cpu, Error **errp);
 int kvm_cpu_exec(CPUState *cpu);
-int get_cov_kvm_cpu_exec(CPUState *cpu, int kcov_fd, unsigned long * kcov_cover, FILE * coverage_file, unsigned long kvm_intel_base,unsigned long * kcov_intel_cover);
+int get_cov_kvm_cpu_exec(CPUState *cpu);
 void kvm_destroy_vcpu(CPUState *cpu);
 void kvm_cpu_synchronize_post_reset(CPUState *cpu);
 void kvm_cpu_synchronize_post_init(CPUState *cpu);
