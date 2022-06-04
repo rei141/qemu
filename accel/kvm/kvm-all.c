@@ -3002,6 +3002,191 @@ int kvm_cpu_exec(CPUState *cpu)
     qatomic_set(&cpu->exit_request, 0);
     return ret;
 }
+int get_cov_kvm_cpu_exec(CPUState *cpu, int kcov_fd, unsigned long * kcov_cover, FILE * coverage_file)
+{
+    struct kvm_run *run = cpu->kvm_run;
+    int ret, run_ret;
+    unsigned long kcov_n;
+    DPRINTF("kvm_cpu_exec()\n");
+
+    if (kvm_arch_process_async_events(cpu)) {
+        qatomic_set(&cpu->exit_request, 0);
+        return EXCP_HLT;
+    }
+
+    qemu_mutex_unlock_iothread();
+    cpu_exec_start(cpu);
+
+    do {
+        MemTxAttrs attrs;
+
+        if (cpu->vcpu_dirty) {
+            kvm_arch_put_registers(cpu, KVM_PUT_RUNTIME_STATE);
+            cpu->vcpu_dirty = false;
+        }
+
+        kvm_arch_pre_run(cpu, run);
+        if (qatomic_read(&cpu->exit_request)) {
+            DPRINTF("interrupt exit requested\n");
+            /*
+             * KVM requires us to reenter the kernel after IO exits to complete
+             * instruction emulation. This self-signal will ensure that we
+             * leave ASAP again.
+             */
+            kvm_cpu_kick_self();
+        }
+
+        /* Read cpu->exit_request before KVM_RUN reads run->immediate_exit.
+         * Matching barrier in kvm_eat_signals.
+         */
+        smp_rmb();
+
+        /* Enable coverage collection on the current thread. */
+        if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
+            perror("ioctl"), exit(1);
+        /* Reset coverage from the tail of the ioctl() call. */
+        __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
+
+
+        run_ret = kvm_vcpu_ioctl(cpu, KVM_RUN, 0);
+
+
+        kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
+        if (fwrite(kcov_cover+1, sizeof(unsigned long), kcov_n, coverage_file) != kcov_n)
+            perror("fwrite"), exit(1);
+
+        /* Disable coverage collection for the current thread. After this call
+        * coverage can be enabled for a different thread.
+        */
+        if (ioctl(kcov_fd, KCOV_DISABLE, 0))
+            perror("ioctl"), exit(1);
+
+
+
+        attrs = kvm_arch_post_run(cpu, run);
+
+#ifdef KVM_HAVE_MCE_INJECTION
+        if (unlikely(have_sigbus_pending)) {
+            qemu_mutex_lock_iothread();
+            kvm_arch_on_sigbus_vcpu(cpu, pending_sigbus_code,
+                                    pending_sigbus_addr);
+            have_sigbus_pending = false;
+            qemu_mutex_unlock_iothread();
+        }
+#endif
+
+        if (run_ret < 0) {
+            if (run_ret == -EINTR || run_ret == -EAGAIN) {
+                DPRINTF("io window exit\n");
+                kvm_eat_signals(cpu);
+                ret = EXCP_INTERRUPT;
+                break;
+            }
+            fprintf(stderr, "error: kvm run failed %s\n",
+                    strerror(-run_ret));
+#ifdef TARGET_PPC
+            if (run_ret == -EBUSY) {
+                fprintf(stderr,
+                        "This is probably because your SMT is enabled.\n"
+                        "VCPU can only run on primary threads with all "
+                        "secondary threads offline.\n");
+            }
+#endif
+            ret = -1;
+            break;
+        }
+
+        trace_kvm_run_exit(cpu->cpu_index, run->exit_reason);
+        switch (run->exit_reason) {
+        case KVM_EXIT_IO:
+            DPRINTF("handle_io\n");
+            /* Called outside BQL */
+            kvm_handle_io(run->io.port, attrs,
+                          (uint8_t *)run + run->io.data_offset,
+                          run->io.direction,
+                          run->io.size,
+                          run->io.count);
+            ret = 0;
+            break;
+        case KVM_EXIT_MMIO:
+            DPRINTF("handle_mmio\n");
+            /* Called outside BQL */
+            address_space_rw(&address_space_memory,
+                             run->mmio.phys_addr, attrs,
+                             run->mmio.data,
+                             run->mmio.len,
+                             run->mmio.is_write);
+            ret = 0;
+            break;
+        case KVM_EXIT_IRQ_WINDOW_OPEN:
+            DPRINTF("irq_window_open\n");
+            ret = EXCP_INTERRUPT;
+            break;
+        case KVM_EXIT_SHUTDOWN:
+            DPRINTF("shutdown\n");
+            qemu_system_reset_request(SHUTDOWN_CAUSE_GUEST_RESET);
+            ret = EXCP_INTERRUPT;
+            break;
+        case KVM_EXIT_UNKNOWN:
+            fprintf(stderr, "KVM: unknown exit, hardware reason %" PRIx64 "\n",
+                    (uint64_t)run->hw.hardware_exit_reason);
+            ret = -1;
+            break;
+        case KVM_EXIT_INTERNAL_ERROR:
+            ret = kvm_handle_internal_error(cpu, run);
+            break;
+        case KVM_EXIT_DIRTY_RING_FULL:
+            /*
+             * We shouldn't continue if the dirty ring of this vcpu is
+             * still full.  Got kicked by KVM_RESET_DIRTY_RINGS.
+             */
+            trace_kvm_dirty_ring_full(cpu->cpu_index);
+            qemu_mutex_lock_iothread();
+            kvm_dirty_ring_reap(kvm_state);
+            qemu_mutex_unlock_iothread();
+            ret = 0;
+            break;
+        case KVM_EXIT_SYSTEM_EVENT:
+            switch (run->system_event.type) {
+            case KVM_SYSTEM_EVENT_SHUTDOWN:
+                qemu_system_shutdown_request(SHUTDOWN_CAUSE_GUEST_SHUTDOWN);
+                ret = EXCP_INTERRUPT;
+                break;
+            case KVM_SYSTEM_EVENT_RESET:
+                qemu_system_reset_request(SHUTDOWN_CAUSE_GUEST_RESET);
+                ret = EXCP_INTERRUPT;
+                break;
+            case KVM_SYSTEM_EVENT_CRASH:
+                kvm_cpu_synchronize_state(cpu);
+                qemu_mutex_lock_iothread();
+                qemu_system_guest_panicked(cpu_get_crash_info(cpu));
+                qemu_mutex_unlock_iothread();
+                ret = 0;
+                break;
+            default:
+                DPRINTF("kvm_arch_handle_exit\n");
+                ret = kvm_arch_handle_exit(cpu, run);
+                break;
+            }
+            break;
+        default:
+            DPRINTF("kvm_arch_handle_exit\n");
+            ret = kvm_arch_handle_exit(cpu, run);
+            break;
+        }
+    } while (ret == 0);
+
+    cpu_exec_end(cpu);
+    qemu_mutex_lock_iothread();
+
+    if (ret < 0) {
+        cpu_dump_state(cpu, stderr, CPU_DUMP_CODE);
+        vm_stop(RUN_STATE_INTERNAL_ERROR);
+    }
+
+    qatomic_set(&cpu->exit_request, 0);
+    return ret;
+}
 
 int kvm_ioctl(KVMState *s, int type, ...)
 {

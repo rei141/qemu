@@ -23,35 +23,15 @@
 #include "qapi/error.h"
 
 #include "kvm-cpus.h"
-#include <fcntl.h>
-#include <pthread.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/ioctl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <unistd.h>
 
-#define KCOV_INIT_TRACE _IOR('c', 1, unsigned long)
-#define KCOV_ENABLE _IO('c', 100)
-#define KCOV_DISABLE _IO('c', 101)
-#define COVER_SIZE (64 << 20)
+#include <time.h>
 
-#define KCOV_TRACE_PC 0
 #define KCOV_TRACE_CMP 1
 
 static void *kvm_vcpu_thread_fn(void *arg)
 {
     CPUState *cpu = arg;
     int r;
-    int kcov_fd;
-    unsigned long *kcov_cover, kcov_n;
-    FILE *coverage_file;
-    FILE *wcoverage_file;
 
     rcu_register_thread();
 
@@ -68,14 +48,20 @@ static void *kvm_vcpu_thread_fn(void *arg)
     cpu_thread_signal_created(cpu);
     qemu_guest_random_seed_thread_part2(cpu->random_seed);
 
-    printf("percpu start\n");
+    int kcov_fd;
+    unsigned long *kcov_cover;
+    // FILE *coverage_file;
+    FILE *coverage_file;
+    // clock_t start_time, end_time;
+    // start_time = clock();
+    // printf("percpu start\n");
     kcov_fd = open("/sys/kernel/debug/kcov", O_RDWR);
     if (kcov_fd == -1)
         perror("open"), exit(1);
-    coverage_file = fopen("/home/ishii/work/VMXbench/coverage.bin", "wb");
-    if (coverage_file == NULL)
-        perror("fopen"), exit(1);
-    wcoverage_file = fopen("/home/ishii/work/VMXbench/wcoverage", "w");
+    // coverage_file = fopen("/home/ishii/work/VMXbench/coverage", "w");
+    // if (coverage_file == NULL)
+        // perror("fopen"), exit(1);
+    coverage_file = fopen("/home/ishii/work/VMXbench/coverage", "w");
     if (coverage_file == NULL)
         perror("fopen"), exit(1);
     /* Setup trace mode and trace size. */
@@ -86,56 +72,43 @@ static void *kvm_vcpu_thread_fn(void *arg)
                                     PROT_READ | PROT_WRITE, MAP_SHARED, kcov_fd, 0);
     if ((void *)kcov_cover == MAP_FAILED)
         perror("mmap"), exit(1);
-
+    // int count = 0;
     do {
-        /* Enable coverage collection on the current thread. */
-        if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
-            perror("ioctl"), exit(1);
-        /* Reset coverage from the tail of the ioctl() call. */
-        __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
-
         if (cpu_can_run(cpu)) {
-            r = kvm_cpu_exec(cpu);
+            // printf("%d\n",++count);
+            r = get_cov_kvm_cpu_exec(cpu, kcov_fd, kcov_cover, coverage_file);
             if (r == EXCP_DEBUG) {
                 cpu_handle_guest_debug(cpu);
             }
         }
+    //         end_time=clock();
+    // FILE * tmp = fopen("/home/ishii/work/VMXbench/tmp","a");
+    // fprintf(tmp,"%f\n",(double)(end_time-start_time)/CLOCKS_PER_SEC);
+    // start_time=clock();
         qemu_wait_io_event(cpu);
-
-        kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
-        if (fwrite(kcov_cover, sizeof(unsigned long), kcov_n, coverage_file) != kcov_n)
-            perror("fwrite"), exit(1);
-        for (unsigned long i = 0; i<kcov_n; i++)
-            fprintf(wcoverage_file,"0x%lx\n",kcov_cover[i+1]);
-        /* Disable coverage collection for the current thread. After this call
-        * coverage can be enabled for a different thread.
-        */
-        if (ioctl(kcov_fd, KCOV_DISABLE, 0))
-            perror("ioctl"), exit(1);
-
     } while (!cpu->unplug || cpu_can_run(cpu));
+    // printf("hello\n");
+    kvm_destroy_vcpu(cpu);
+    cpu_thread_signal_destroyed(cpu);
+    qemu_mutex_unlock_iothread();
+    rcu_unregister_thread();
 
     if (munmap(kcov_cover, COVER_SIZE * sizeof(unsigned long)))
         perror("munmap"), exit(1);
     if (close(kcov_fd))
         perror("close"), exit(1);
+    // if (fclose(coverage_file) == EOF)
+    //     perror("fclose"), exit(1);
     if (fclose(coverage_file) == EOF)
         perror("fclose"), exit(1);
-    if (fclose(wcoverage_file) == EOF)
-        perror("fclose"), exit(1);
-    kvm_destroy_vcpu(cpu);
-    cpu_thread_signal_destroyed(cpu);
-    qemu_mutex_unlock_iothread();
-    rcu_unregister_thread();
+
+    // printf("%f\n",(double)(end_time-start_time)/CLOCKS_PER_SEC);
     return NULL;
 }
 
 static void kvm_start_vcpu_thread(CPUState *cpu)
 {
     char thread_name[VCPU_THREAD_NAME_SIZE];
-    FILE * tmp;
-    tmp = fopen("/home/ishii/work/VMXbench/tmp","a");
-    fprintf(tmp,"1\n");
 
     cpu->thread = g_malloc0(sizeof(QemuThread));
     cpu->halt_cond = g_malloc0(sizeof(QemuCond));
