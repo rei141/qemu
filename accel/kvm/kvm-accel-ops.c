@@ -49,7 +49,7 @@ static void *kvm_vcpu_thread_fn(void *arg)
     qemu_guest_random_seed_thread_part2(cpu->random_seed);
 
     int kcov_fd;
-    unsigned long *kcov_cover;
+    unsigned long *kcov_cover, *kcov_intel_cover;
     // FILE *coverage_file;
     FILE *coverage_file;
     // clock_t start_time, end_time;
@@ -67,16 +67,28 @@ static void *kvm_vcpu_thread_fn(void *arg)
     /* Setup trace mode and trace size. */
     if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE))
         perror("ioctl"), exit(1);
+    
+    FILE * fkvm = fopen("/sys/module/kvm_intel/sections/.text","r");
+    char kvm_base[18];
+    int n = fread(kvm_base, sizeof(char),18,fkvm);
+    n=0;
+    printf("%d\n",n);
+    unsigned long kvm_intel_base = strtoul(kvm_base, NULL,0);
+
     /* Mmap buffer shared between kernel- and user-space. */
     kcov_cover = (unsigned long *)mmap(NULL, COVER_SIZE * sizeof(unsigned long),
                                     PROT_READ | PROT_WRITE, MAP_SHARED, kcov_fd, 0);
     if ((void *)kcov_cover == MAP_FAILED)
         perror("mmap"), exit(1);
+
+    kcov_intel_cover = (unsigned long *)malloc(COVER_SIZE * sizeof(unsigned long));
+    if (kcov_intel_cover == NULL)
+        perror("malloc"), exit(1);
     // int count = 0;
     do {
         if (cpu_can_run(cpu)) {
             // printf("%d\n",++count);
-            r = get_cov_kvm_cpu_exec(cpu, kcov_fd, kcov_cover, coverage_file);
+            r = get_cov_kvm_cpu_exec(cpu, kcov_fd, kcov_cover, coverage_file,kvm_intel_base,kcov_intel_cover);
             if (r == EXCP_DEBUG) {
                 cpu_handle_guest_debug(cpu);
             }

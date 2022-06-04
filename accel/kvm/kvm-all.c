@@ -3002,11 +3002,12 @@ int kvm_cpu_exec(CPUState *cpu)
     qatomic_set(&cpu->exit_request, 0);
     return ret;
 }
-int get_cov_kvm_cpu_exec(CPUState *cpu, int kcov_fd, unsigned long * kcov_cover, FILE * coverage_file)
+int get_cov_kvm_cpu_exec(CPUState *cpu, int kcov_fd, unsigned long * kcov_cover, FILE * coverage_file, unsigned long kvm_intel_base,unsigned long * kcov_intel_cover)
 {
     struct kvm_run *run = cpu->kvm_run;
     int ret, run_ret;
     unsigned long kcov_n;
+    int count = 0;
     DPRINTF("kvm_cpu_exec()\n");
 
     if (kvm_arch_process_async_events(cpu)) {
@@ -3052,7 +3053,15 @@ int get_cov_kvm_cpu_exec(CPUState *cpu, int kcov_fd, unsigned long * kcov_cover,
 
 
         kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
-        if (fwrite(kcov_cover+1, sizeof(unsigned long), kcov_n, coverage_file) != kcov_n)
+
+        count = 0;
+        for (int i = 0; i < kcov_n; i++) {
+            if (kcov_cover[i+1] >= kvm_intel_base && kcov_cover[i+1] < kvm_intel_base + 0x59797 + 0xa0){
+                kcov_intel_cover[count] = kcov_cover[i+1]-kvm_intel_base;
+                count++;
+            }
+        }
+        if (fwrite(kcov_intel_cover, sizeof(unsigned int), count, coverage_file) != count)
             perror("fwrite"), exit(1);
 
         /* Disable coverage collection for the current thread. After this call
