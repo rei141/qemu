@@ -30,10 +30,11 @@
 
 int kcov_fd;
 unsigned long * kcov_cover;
-FILE * kvm_intel_coverage_file;
-FILE * kvm_coverage_file;
+
+
 unsigned long kvm_intel_base;
 unsigned long kvm_base;
+
 // unsigned int * kcov_intel_cover;
 
 static void *kvm_vcpu_thread_fn(void *arg)
@@ -56,20 +57,17 @@ static void *kvm_vcpu_thread_fn(void *arg)
     cpu_thread_signal_created(cpu);
     qemu_guest_random_seed_thread_part2(cpu->random_seed);
 
-    clock_t start_time, end_time;
-    start_time = clock();
 
-    printf("percpu start\n");
+
+    // clock_t start_time, end_time;
+    // start_time = clock();
+
+    // printf("percpu start\n");
     kcov_fd = open("/sys/kernel/debug/kcov", O_RDWR);
     if (kcov_fd == -1)
         perror("open"), exit(1);
 
-    kvm_intel_coverage_file = fopen("/home/ishii/work/VMXbench/kvm_intel_coverage", "w");
-    if (kvm_intel_coverage_file == NULL)
-        perror("fopen"), exit(1);
-    kvm_coverage_file = fopen("/home/ishii/work/VMXbench/kvm_coverage", "w");
-    if (kvm_coverage_file == NULL)
-        perror("fopen"), exit(1);
+
 
     /* Setup trace mode and trace size. */
     if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE))
@@ -91,13 +89,13 @@ static void *kvm_vcpu_thread_fn(void *arg)
     if(n != 18)
         perror("fread"), exit(1);
     kvm_intel_base = strtoul(kvm_intel_str, NULL,0);
-    fprintf(kvm_intel_coverage_file, "0x%lx\n", kvm_intel_base);
+    // fprintf(kvm_intel_coverage_file, "0x%lx\n", kvm_intel_base);
 
     n = fread(kvm_str, sizeof(char),18,fkvm);
     if(n != 18)
         perror("fread"), exit(1);
     kvm_base = strtoul(kvm_str, NULL,0);
-    fprintf(kvm_coverage_file, "0x%lx\n", kvm_base);
+    // fprintf(kvm_coverage_file, "0x%lx\n", kvm_base);
 
     if (fclose(fkvm_intel) == EOF)
         perror("fclose"), exit(1);
@@ -113,22 +111,33 @@ static void *kvm_vcpu_thread_fn(void *arg)
     // kcov_intel_cover = (unsigned int *)malloc(COVER_SIZE * sizeof(unsigned int));
     // if (kcov_intel_cover == NULL)
     //     perror("malloc"), exit(1);
-
+    const char *afl_shm_id_str = getenv("__AFL_SHM_ID");
+    if (afl_shm_id_str != NULL) {
+        FILE * fuga = fopen("fuga","w");
+        fclose(fuga);
+    }
     do {
         if (cpu_can_run(cpu)) {
             // printf("%d\n",++count);
-            r = get_cov_kvm_cpu_exec(cpu);
+            if (afl_shm_id_str != NULL) {
+                r = afl_shm_get_cov_kvm_cpu_exec(cpu,afl_shm_id_str);
+            }
+            else {
+                r = get_cov_kvm_cpu_exec(cpu);
+            }
             if (r == EXCP_DEBUG) {
                 cpu_handle_guest_debug(cpu);
             }
         }
-            end_time=clock();
-    FILE * tmp = fopen("/home/ishii/work/VMXbench/tmp","a");
-    fprintf(tmp,"%f\n",(double)(end_time-start_time)/CLOCKS_PER_SEC);
-    start_time=clock();
+    //         end_time=clock();
+    // FILE * tmp = fopen("/home/ishii/nestedFuzz/VMXbench/tmp","a");
+    // fprintf(tmp,"%f\n",(double)(end_time-start_time)/CLOCKS_PER_SEC);
+    // start_time=clock();
         qemu_wait_io_event(cpu);
     } while (!cpu->unplug || cpu_can_run(cpu));
     // printf("hello\n");
+    // FILE * tmp = fopen("/home/ishii/work/VMXbench/hello","w");
+    // fprintf(tmp,"hello\n");
     kvm_destroy_vcpu(cpu);
     cpu_thread_signal_destroyed(cpu);
     qemu_mutex_unlock_iothread();
@@ -138,10 +147,7 @@ static void *kvm_vcpu_thread_fn(void *arg)
         perror("munmap"), exit(1);
     if (close(kcov_fd))
         perror("close"), exit(1);
-    if (fclose(kvm_intel_coverage_file) == EOF)
-        perror("fclose"), exit(1);
-    if (fclose(kvm_coverage_file) == EOF)
-        perror("fclose"), exit(1);
+
 
     // printf("%f\n",(double)(end_time-start_time)/CLOCKS_PER_SEC);
     return NULL;

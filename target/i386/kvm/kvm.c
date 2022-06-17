@@ -5091,12 +5091,79 @@ static bool host_supports_vmx(void)
 }
 
 #define VMX_INVALID_GUEST_STATE 0x80000021
-
+#include <sys/shm.h>
+// #include <pthread.h>
+#include <unistd.h>
+#include <time.h>
 int kvm_arch_handle_exit(CPUState *cs, struct kvm_run *run)
 {
     X86CPU *cpu = X86_CPU(cs);
     uint64_t code;
     int ret;
+    if(KVM_EXIT_MY_HYPERCALL == run->exit_reason){
+        FILE * test_fd = fopen("/home/ishii/nestedFuzz/VMXbench/kvm_exit_test", "w");
+        fclose(test_fd);
+        ret = kvm_getput_regs(cpu, 0);
+        if (ret < 0) {
+            return ret;
+        }
+        /*////// memory_file ******************************************
+        // char buf[1024];
+        // ssize_t tmp = write(1, "hello", 6);
+        // tmp += 1;
+        // while(read(0, buf, sizeof(buf)) <= 0);
+        FILE * fd_shm = fopen("/home/ishii/nestedFuzz/VMXbench/shmid", "rb");
+        // char * shm = mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd_shm, 0);
+            int   id;
+        int a = fread(&id, sizeof(int),1,fd_shm);
+        a += 1;
+        char  *shmData;
+        if((shmData = (char *)shmat(id, 0, 0)) == (void *)-1) {
+        perror("shmat()");
+        exit(EXIT_FAILURE);
+        }
+        shmData[0] = 1;
+
+        while(shmData[1] == 0);
+        shmData[1] = 0;
+        // *************************************************************************
+        // */
+        // /* ****************************************
+        sem_t * sem = sem_open("/sem", O_CREAT); 
+        sem_post(sem);
+        FILE * chi = fopen("/home/ishii/nestedFuzz/VMXbench/chi", "w");
+        fclose(chi);
+        // usleep(500000);
+        // sleep(1);
+        // clock_t start = 0, end = 0;
+        // start = clock();
+        // end = start;
+        // while((end - start)/CLOCKS_PER_SEC < 0.5){
+        //     end = clock();
+        // }
+        sleep(2);
+        // volatile unsigned long t = 0;
+        // for(volatile unsigned long  i = 0; i < (unsigned long )1*1000*1000*1000; i++){t++;}
+        sem_wait(sem);
+        //**********************************************
+        //*/ 
+        // sem_wait(sem);
+        // sem_post(sem);
+        // if( shmdt( shmData ) == -1) {
+        //     perror("shmdt()");
+        //     exit(EXIT_FAILURE);
+        // }
+        // fprintf(stderr, "KVM: KVM_EXIT_MY_HYPERCALL %d. %ld, %ld, %ld, %ld, %ld\n",
+        //                                             run->exit_reason,
+        //                                             cpu->env.regs[R_EAX],
+        //                                             cpu->env.regs[R_EBX],
+        //                                             cpu->env.regs[R_ECX],
+        //                                             cpu->env.regs[R_EDX],
+        //                                             cpu->env.regs[R_ESI]);
+        cpu->env.regs[R_EAX] = 0;
+        ret = kvm_getput_regs(cpu, 1);
+        return ret;
+    }
 
     switch (run->exit_reason) {
     case KVM_EXIT_HLT:
