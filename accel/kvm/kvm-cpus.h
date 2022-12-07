@@ -27,7 +27,7 @@
 #define KCOV_INIT_TRACE _IOR('c', 1, unsigned long)
 #define KCOV_ENABLE _IO('c', 100)
 #define KCOV_DISABLE _IO('c', 101)
-#define COVER_SIZE (64 << 12)
+#define COVER_SIZE (64 << 14)
 
 #define KCOV_TRACE_PC 0
 #define KCOV_TRACE_CMP 1
@@ -43,7 +43,7 @@ int kvm_init_vcpu(CPUState *cpu, Error **errp);
 int kvm_cpu_exec(CPUState *cpu);
 uint16_t hash_int_to_16b(int val);
 int get_cov_kvm_cpu_exec(CPUState *cpu);
-int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu,const char *afl_shm_id_str);
+int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu);
 void kvm_destroy_vcpu(CPUState *cpu);
 void kvm_cpu_synchronize_post_reset(CPUState *cpu);
 void kvm_cpu_synchronize_post_init(CPUState *cpu);

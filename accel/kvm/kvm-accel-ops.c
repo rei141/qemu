@@ -111,20 +111,20 @@ static void *kvm_vcpu_thread_fn(void *arg)
     // kcov_intel_cover = (unsigned int *)malloc(COVER_SIZE * sizeof(unsigned int));
     // if (kcov_intel_cover == NULL)
     //     perror("malloc"), exit(1);
-    const char *afl_shm_id_str = getenv("__AFL_SHM_ID");
-    if (afl_shm_id_str != NULL) {
-        FILE * fuga = fopen("fuga","w");
-        fclose(fuga);
-    }
+    // const char *afl_shm_id_str = getenv("__AFL_SHM_ID");
+    // if (afl_shm_id_str != NULL) {
+    //     FILE * fuga = fopen("fuga","w");
+    //     fclose(fuga);
+    // }
     do {
         if (cpu_can_run(cpu)) {
             // printf("%d\n",++count);
-            if (afl_shm_id_str != NULL) {
-                r = afl_shm_get_cov_kvm_cpu_exec(cpu,afl_shm_id_str);
-            }
-            else {
-                r = get_cov_kvm_cpu_exec(cpu);
-            }
+            // if (afl_shm_id_str != NULL) {
+                r = afl_shm_get_cov_kvm_cpu_exec(cpu);
+            // }
+            // else {
+                // r = get_cov_kvm_cpu_exec(cpu);
+            // }
             if (r == EXCP_DEBUG) {
                 cpu_handle_guest_debug(cpu);
             }

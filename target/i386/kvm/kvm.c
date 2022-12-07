@@ -5101,8 +5101,8 @@ int kvm_arch_handle_exit(CPUState *cs, struct kvm_run *run)
     uint64_t code;
     int ret;
     if(KVM_EXIT_MY_HYPERCALL == run->exit_reason){
-        FILE * test_fd = fopen("/home/ishii/nestedFuzz/VMXbench/kvm_exit_test", "w");
-        fclose(test_fd);
+        // FILE * test_fd = fopen("/home/ishii/nestedFuzz/VMXbench/kvm_exit_test", "w");
+        // fclose(test_fd);
         ret = kvm_getput_regs(cpu, 0);
         if (ret < 0) {
             return ret;
@@ -5123,36 +5123,46 @@ int kvm_arch_handle_exit(CPUState *cs, struct kvm_run *run)
         exit(EXIT_FAILURE);
         }
         shmData[0] = 1;
-
+        
         while(shmData[1] == 0);
         shmData[1] = 0;
         // *************************************************************************
         // */
         // /* ****************************************
-        sem_t * sem = sem_open("/sem", O_CREAT); 
-        sem_post(sem);
-        FILE * chi = fopen("/home/ishii/nestedFuzz/VMXbench/chi", "w");
-        fclose(chi);
-        // usleep(500000);
-        // sleep(1);
-        // clock_t start = 0, end = 0;
-        // start = clock();
-        // end = start;
-        // while((end - start)/CLOCKS_PER_SEC < 0.5){
-        //     end = clock();
-        // }
-        sleep(2);
-        // volatile unsigned long t = 0;
-        // for(volatile unsigned long  i = 0; i < (unsigned long )1*1000*1000*1000; i++){t++;}
-        sem_wait(sem);
-        //**********************************************
-        //*/ 
+        // sem_t *sem;
+        // sem_unlink("/sem");
+        // sem = sem_open("/sem", O_CREAT, S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH,0); 
+        // int fd = shm_open("ivshmem", O_CREAT|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
+    //     if (fd == -1)
+    //         perror("open"), exit(1);
+    //     int err = ftruncate(fd, 1024*1024);
+    //         if(err == -1){
+    //     perror("ftruncate"), exit(1);
+    // }
+    //     uint16_t * ivmshm = (uint16_t *)mmap(NULL, 1024*1024,
+    //                                 PROT_READ , MAP_SHARED, fd, 0);
+    //     uint16_t backup[5000];
+    //     memcpy(backup, ivmshm, 2*5000);
+    //     munmap(ivmshm,1024*1024);
+    //      ivmshm = (uint16_t *)mmap(NULL, 1024*1024,
+    //                                     PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    //     if ((void *)ivmshm == MAP_FAILED)
+    //         perror("mmap"), exit(1);
+    //         memcpy(ivmshm, backup,2*5000);
+    //     ivmshm += 0x6;
+    //     uint16_t volatile flag= ivmshm[4000];
+    //     while(1){
+    //         flag = ivmshm[4000];
+    //         if(flag == 1){
+    //             break;
+    //         }
+    //     }
+    //     ivmshm[4000] = 0;
+    //     msync(ivmshm,2*5000,MS_ASYNC|MS_SYNC);
+    // if (munmap(ivmshm-6, 1024*1024))
+    //     perror("munmap"), exit(1);
         // sem_wait(sem);
-        // sem_post(sem);
-        // if( shmdt( shmData ) == -1) {
-        //     perror("shmdt()");
-        //     exit(EXIT_FAILURE);
-        // }
+
         // fprintf(stderr, "KVM: KVM_EXIT_MY_HYPERCALL %d. %ld, %ld, %ld, %ld, %ld\n",
         //                                             run->exit_reason,
         //                                             cpu->env.regs[R_EAX],
@@ -5162,7 +5172,10 @@ int kvm_arch_handle_exit(CPUState *cs, struct kvm_run *run)
         //                                             cpu->env.regs[R_ESI]);
         cpu->env.regs[R_EAX] = 0;
         ret = kvm_getput_regs(cpu, 1);
-        return ret;
+        // FILE * chi = fopen("/home/ishii/nestedFuzz/VMXbench/chi", "w");
+        // fprintf(chi,"%d\n",ret);
+        // fclose(chi);
+        return 1;
     }
 
     switch (run->exit_reason) {

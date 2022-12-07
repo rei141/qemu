@@ -3011,9 +3011,10 @@ FILE * kvm_intel_coverage_file;
 FILE * kvm_coverage_file;
 
 uint16_t hash_int_to_16b(int val) {
-    return (val >> 16) ^ (val &0xffff);
+    return (val >> 16) ^ (val &0x0000ffff);
 }
 uint8_t total_coverage[0x60000];
+uint8_t kvm_coverage[0xae000];
 int get_cov_kvm_cpu_exec(CPUState *cpu)
 {
     FILE * total_cov_file = fopen("total_coverage","rb");
@@ -3087,10 +3088,10 @@ int get_cov_kvm_cpu_exec(CPUState *cpu)
                 if(bitmap[(cur_location ^ prev_location)] != 255)
                     bitmap[(cur_location ^ prev_location)]++;
                 prev_location = cur_location >> 1;
-                if (kvm_intel_coverd[cov] == 0){
-                    kvm_intel_coverd[cov] = 1;
-                    fprintf(kvm_intel_coverage_file,"0x%x\n",cov);
-                }
+                // if (kvm_intel_coverd[cov] == 0){
+                //     kvm_intel_coverd[cov] = 1;
+                //     fprintf(kvm_intel_coverage_file,"0x%x\n",cov);
+                // }
                 if (total_coverage[cov] == 0){
                     total_coverage[cov] = 1;
                     wflag = 1;
@@ -3098,10 +3099,14 @@ int get_cov_kvm_cpu_exec(CPUState *cpu)
             } else {
                 cov = (int)(kcov_cover[i+1]-kvm_base);
                 if (cov >= 0 && cov < 0xadf49 + 0xa0){
-                    if (kvm_coverd[cov] == 0){
-                        kvm_coverd[cov] = 1;
-                        fprintf(kvm_coverage_file,"0x%x\n",cov);
-                    }
+                    cur_location = hash_int_to_16b(0xfff00000 | cov);
+                    if(bitmap[(cur_location ^ prev_location)] != 255)
+                        bitmap[(cur_location ^ prev_location)]++;
+                    prev_location = cur_location >> 1;                    
+                    // if (kvm_coverd[cov] == 0){
+                    //     kvm_coverd[cov] = 1;
+                    //     fprintf(kvm_coverage_file,"0x%x\n",cov);
+                    // }
                 } 
             }
         }
@@ -3261,20 +3266,55 @@ int get_cov_kvm_cpu_exec(CPUState *cpu)
     return ret;
 }
 
-int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu,const char *afl_shm_id_str)
+int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
 {
-	uint8_t *afl_area_ptr = NULL;
-    int afl_shm_id = atoi(afl_shm_id_str);
-    afl_area_ptr = shmat(afl_shm_id, NULL, 0);
+    int bitmap_fd = shm_open("afl_bitmap", O_CREAT|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
+    if (bitmap_fd == -1)
+        perror("open"), exit(1);
+    int err = ftruncate(bitmap_fd, 65536);
+    if(err == -1){
+        perror("ftruncate"), exit(1);
+    }
+    // uint8_t * afl_area_ptr = (uint8_t *)mmap(NULL, 65536,
+    //                                 PROT_READ, MAP_SHARED, bitmap_fd, 0);
+    // if ((void *)afl_area_ptr == MAP_FAILED)
+    //     perror("mmap"), exit(1);   
+    // uint8_t bitmap_back[65536];
+    // memcpy(bitmap_back, afl_area_ptr,65536);
+    // if (munmap(afl_area_ptr, 65536))
+    //     perror("munmap"), exit(1);
+    // afl_area_ptr = (uint8_t *)mmap(NULL, 65536,
+    //                                 PROT_READ | PROT_WRITE, MAP_SHARED, bitmap_fd, 0);
+    uint8_t * afl_area_ptr = (uint8_t *)mmap(NULL, 65536,
+                                    PROT_READ | PROT_WRITE, MAP_SHARED, bitmap_fd, 0);                                    
+    if ((void *)afl_area_ptr == MAP_FAILED)
+        perror("mmap"), exit(1);   
+    // memcpy(afl_area_ptr,bitmap_back,65536);
+    close(bitmap_fd);
 
-    FILE * total_cov_file = fopen("total_coverage","rb");
-    int n = fread(total_coverage, sizeof(uint8_t), 0x60000, total_cov_file);
-    fclose(total_cov_file);
-	n++;
-    if (afl_area_ptr == NULL) {
-		perror("[-] Running outside of AFL");
-		exit(1);
-	}
+    FILE * total_cov_file;
+    int n;
+    if ((total_cov_file = fopen("total_kvm_intel_coverage","rb")) != NULL){
+        memset(total_coverage, 0, sizeof(total_coverage));
+        n = fread(total_coverage, sizeof(uint8_t), 0x60000, total_cov_file);
+        if (n) {
+            fclose(total_cov_file);
+        }
+        else {
+            perror("fread error");
+        }
+    }
+    FILE * kvm_cov_file;
+    if ((kvm_cov_file = fopen("total_kvm_coverage","rb")) != NULL){
+        memset(kvm_coverage, 0, sizeof(total_coverage));
+        n = fread(kvm_coverage, sizeof(uint8_t), 0xae000, kvm_cov_file);
+        if (n) {
+            fclose(kvm_cov_file);
+        }
+        else {
+            perror("fread error");
+        }
+    }
 
     // uint8_t *bitmap = afl_area_ptr
     struct kvm_run *run = cpu->kvm_run;
@@ -3283,14 +3323,16 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu,const char *afl_shm_id_str)
     // int count = 0;
     int cov;
     uint16_t cur_location, prev_location;
+    int wflag = 0;
+    int kflag = 0;
     prev_location = 0;
     DPRINTF("kvm_cpu_exec()\n");
-    kvm_intel_coverage_file = fopen("/home/ishii/nestedFuzz/VMXbench/kvm_intel_coverage", "a");
-    if (kvm_intel_coverage_file == NULL)
-        perror("fopen"), exit(1);
-    kvm_coverage_file = fopen("/home/ishii/nestedFuzz/VMXbench/kvm_coverage", "a");
-    if (kvm_coverage_file == NULL)
-        perror("fopen"), exit(1);
+    // kvm_intel_coverage_file = fopen("/home/ishii/nestedFuzz/VMXbench/kvm_intel_coverage", "a");
+    // if (kvm_intel_coverage_file == NULL)
+    //     perror("fopen"), exit(1);
+    // kvm_coverage_file = fopen("/home/ishii/nestedFuzz/VMXbench/kvm_coverage", "a");
+    // if (kvm_coverage_file == NULL)
+    //     perror("fopen"), exit(1);
     if (kvm_arch_process_async_events(cpu)) {
         qatomic_set(&cpu->exit_request, 0);
         return EXCP_HLT;
@@ -3298,8 +3340,6 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu,const char *afl_shm_id_str)
 
     qemu_mutex_unlock_iothread();
     cpu_exec_start(cpu);
-    int wflag = 0;
-
     do {
         MemTxAttrs attrs;
 
@@ -3335,19 +3375,23 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu,const char *afl_shm_id_str)
 
 
         kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
-
+        prev_location++;
         // count = 0;
         for (int i = 0; i < kcov_n; i++) {
             cov = (int)(kcov_cover[i+1]-kvm_intel_base);
             if (cov >= 0 && cov < 0x59797 + 0xa0){
                 cur_location = hash_int_to_16b(cov);
-                if(afl_area_ptr[(cur_location ^ prev_location)] != 255)
-                    afl_area_ptr[(cur_location ^ prev_location)]++;
+                // if(afl_area_ptr[(cur_location ^ prev_location)] != 255){
+                if(afl_area_ptr[(cur_location)] != 255){
+                    afl_area_ptr[(cur_location)]++;
+                    // afl_area_ptr[(cur_location ^ prev_location)]++;
+                    }
                 prev_location = cur_location >> 1;
-                if (kvm_intel_coverd[cov] == 0){
-                    kvm_intel_coverd[cov] = 1;
-                    fprintf(kvm_intel_coverage_file,"0x%x\n",cov);
-                }
+                // if (kvm_intel_coverd[cov] == 0){
+                //     kvm_intel_coverd[cov] = 1;
+                //     fprintf(kvm_intel_coverage_file,"0x%x\n",cov);
+                // }
+                // if (wflag != 1 && total_coverage[cov] == 0){
                 if (total_coverage[cov] == 0){
                     total_coverage[cov] = 1;
                     wflag = 1;
@@ -3355,13 +3399,22 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu,const char *afl_shm_id_str)
             } else {
                 cov = (int)(kcov_cover[i+1]-kvm_base);
                 if (cov >= 0 && cov < 0xadf49 + 0xa0){
-                    if (kvm_coverd[cov] == 0){
-                        kvm_coverd[cov] = 1;
-                        fprintf(kvm_coverage_file,"0x%x\n",cov);
+                    cur_location = hash_int_to_16b(0xfff00000 | cov);
+                    if(afl_area_ptr[(cur_location)] != 255){
+                        // afl_area_ptr[(cur_location ^ prev_location)]++;
+                        afl_area_ptr[(cur_location)]++;
+                        }
+                    prev_location = cur_location >> 1;      
+                    // if (kflag != 1 && kvm_coverage[cov] == 0){
+                    if (kvm_coverage[cov] == 0){
+                        kvm_coverage[cov] = 1;
+                        kflag = 1;
+                        } 
                     }
                 } 
             }
-        }
+        // msync(afl_area_ptr,65536,MS_ASYNC|MS_SYNC);
+        
 
         /* Disable coverage collection for the current thread. After this call
         * coverage can be enabled for a different thread.
@@ -3483,27 +3536,54 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu,const char *afl_shm_id_str)
             break;
         }
     } while (ret == 0);
-    FILE * kvm_intel_bitmap = fopen("/home/ishii/nestedFuzz/VMXbench/shm_kvm_intel_bitmap", "wb");
-    if (kvm_intel_bitmap == NULL)
-        perror("fopen"), exit(1);
-    fwrite(afl_area_ptr,sizeof(uint8_t),65536,kvm_intel_bitmap);
-    fclose(kvm_intel_bitmap);
-    if (fclose(kvm_intel_coverage_file) == EOF)
-        perror("fclose"), exit(1);
-    if (fclose(kvm_coverage_file) == EOF)
-        perror("fclose"), exit(1);
+    // FILE * kvm_intel_bitmap = fopen("/home/ishii/nestedFuzz/VMXbench/shm_kvm_intel_bitmap", "wb");
+    // if (kvm_intel_bitmap == NULL)
+    //     perror("fopen"), exit(1);
+    // fwrite(afl_area_ptr,sizeof(uint8_t),65536,kvm_intel_bitmap);
+    // fclose(kvm_intel_bitmap);
+    munmap(afl_area_ptr,65536);
+    // if (fclose(kvm_intel_coverage_file) == EOF)
+    //     perror("fclose"), exit(1);
+    // if (fclose(kvm_coverage_file) == EOF)
+    //     perror("fclose"), exit(1);
     if (wflag != 0 ){
-        FILE * total_cov_file = fopen("total_coverage","w");
+        FILE * total_cov_file = fopen("total_kvm_intel_coverage","w");
         fwrite(total_coverage,sizeof(uint8_t),0x60000,total_cov_file);
         fclose(total_cov_file);
         
-        struct tm tm;
-        time_t t = time(NULL);
-        localtime_r(&t, &tm);
+        // time_t型は基準年からの秒数
+        // time_tのままでは使いにくい．time_tはtm構造体に相互に変換できる
+        struct timeval tv;
+        struct tm *tm;
+
+        gettimeofday(&tv, NULL);
+
+        tm = localtime(&tv.tv_sec);
         char f_name[100];
-        sprintf(f_name,"record/newcov_%02d_%02d_%02d_%02d_%02d",tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+        sprintf(f_name,"record/n_intel_%02d_%02d_%02d_%02d_%02d_%06ld",tm->tm_mon+1, tm->tm_mday,\
+         tm->tm_hour, tm->tm_min, tm->tm_sec,tv.tv_usec);
         FILE * record = fopen(f_name,"w");
         fwrite(total_coverage,sizeof(uint8_t),0x60000,record);
+        fclose(record);
+    }
+    if (kflag != 0 ){
+        FILE * total_cov_file = fopen("total_kvm_coverage","w");
+        fwrite(kvm_coverage,sizeof(uint8_t),0xae000,total_cov_file);
+        fclose(total_cov_file);
+        
+        // time_t型は基準年からの秒数
+        // time_tのままでは使いにくい．time_tはtm構造体に相互に変換できる
+        struct timeval tv;
+        struct tm *tm;
+
+        gettimeofday(&tv, NULL);
+
+        tm = localtime(&tv.tv_sec);
+        char f_name[100];
+        sprintf(f_name,"record/n_kvm_%02d_%02d_%02d_%02d_%02d_%06ld",tm->tm_mon+1, tm->tm_mday,\
+         tm->tm_hour, tm->tm_min, tm->tm_sec,tv.tv_usec);
+        FILE * record = fopen(f_name,"w");
+        fwrite(kvm_coverage,sizeof(uint8_t),0xae000,record);
         fclose(record);
     }
     cpu_exec_end(cpu);
