@@ -410,8 +410,8 @@ static int do_kvm_destroy_vcpu(CPUState *cpu)
         goto err;
     }
 
-    mmap_size = kvm_ioctl(s, KVM_GET_VCPU_MMAP_SIZE, 0);
-    // mmap_size = kcov_kvm_ioctl(s, KVM_GET_VCPU_MMAP_SIZE, 0);
+    // mmap_size = kvm_ioctl(s, KVM_GET_VCPU_MMAP_SIZE, 0);
+    mmap_size = kcov_kvm_ioctl(s, KVM_GET_VCPU_MMAP_SIZE, 0);
     if (mmap_size < 0) {
         ret = mmap_size;
         DPRINTF("KVM_GET_VCPU_MMAP_SIZE failed\n");
@@ -461,8 +461,8 @@ static int kvm_get_vcpu(KVMState *s, unsigned long vcpu_id)
         }
     }
 
-    return kvm_vm_ioctl(s, KVM_CREATE_VCPU, (void *)vcpu_id);
-    // return kcov_kvm_vm_ioctl(s, KVM_CREATE_VCPU, (void *)vcpu_id);
+    // return kvm_vm_ioctl(s, KVM_CREATE_VCPU, (void *)vcpu_id);
+    return kcov_kvm_vm_ioctl(s, KVM_CREATE_VCPU, (void *)vcpu_id);
 }
 
 int kvm_init_vcpu(CPUState *cpu, Error **errp)
@@ -485,8 +485,8 @@ int kvm_init_vcpu(CPUState *cpu, Error **errp)
     cpu->vcpu_dirty = true;
     cpu->dirty_pages = 0;
 
-    mmap_size = kvm_ioctl(s, KVM_GET_VCPU_MMAP_SIZE, 0);
-    // mmap_size = kcov_kvm_ioctl(s, KVM_GET_VCPU_MMAP_SIZE, 0);
+    // mmap_size = kvm_ioctl(s, KVM_GET_VCPU_MMAP_SIZE, 0);
+    mmap_size = kcov_kvm_ioctl(s, KVM_GET_VCPU_MMAP_SIZE, 0);
     if (mmap_size < 0) {
         ret = mmap_size;
         error_setg_errno(errp, -mmap_size,
@@ -1155,8 +1155,8 @@ int kvm_check_extension(KVMState *s, unsigned int extension)
 {
     int ret;
 
-    ret = kvm_ioctl(s, KVM_CHECK_EXTENSION, extension);
-    // ret = kcov_kvm_ioctl(s, KVM_CHECK_EXTENSION, extension);
+    // ret = kvm_ioctl(s, KVM_CHECK_EXTENSION, extension);
+    ret = kcov_kvm_ioctl(s, KVM_CHECK_EXTENSION, extension);
     if (ret < 0) {
         ret = 0;
     }
@@ -2781,8 +2781,8 @@ static int kvm_init(MachineState *ms)
         goto err;
     }
 
-    ret = kvm_ioctl(s, KVM_GET_API_VERSION, 0);
-    // ret = kcov_kvm_ioctl(s, KVM_GET_API_VERSION, 0);
+    // ret = kvm_ioctl(s, KVM_GET_API_VERSION, 0);
+    ret = kcov_kvm_ioctl(s, KVM_GET_API_VERSION, 0);
     if (ret < KVM_API_VERSION) {
         if (ret >= 0) {
             ret = -EINVAL;
@@ -2821,8 +2821,8 @@ static int kvm_init(MachineState *ms)
     }
 
     do {
-        ret = kvm_ioctl(s, KVM_CREATE_VM, type);
-        // ret = kcov_kvm_ioctl(s, KVM_CREATE_VM, type);
+        // ret = kvm_ioctl(s, KVM_CREATE_VM, type);
+        ret = kcov_kvm_ioctl(s, KVM_CREATE_VM, type);
     } while (ret == -EINTR);
 
     if (ret < 0) {
@@ -3804,6 +3804,25 @@ int kcov_kvm_ioctl(KVMState *s, int type, ...)
     /* Disable coverage collection for the current thread. After this call
     * coverage can be enabled for a different thread.
     */
+    for (int i = 0; i < kcov_n; i++) {
+        int cov = (int)(kcov_cover[i+1]-kvm_intel_base);
+        if (cov >= 0 && cov < MAX_KVM_INTEL){
+            if (total_coverage[cov] == 0){
+                total_coverage[cov] = 1;
+                wflag = 1;
+            }
+        }
+        else {
+            cov = (int)(kcov_cover[i+1]-kvm_base);
+            if (cov >= 0 && cov < MAX_KVM){  
+                // if (kflag != 1 && kvm_coverage[cov] == 0){
+                if (kvm_coverage[cov] == 0){
+                    kvm_coverage[cov] = 1;
+                    kflag = 1;
+                } 
+            }
+        } 
+    }
     if (ioctl(kcov_fd, KCOV_DISABLE, 0))
         perror("ioctl"), exit(1);
     if (ret == -1) {
@@ -3850,6 +3869,25 @@ int kcov_kvm_vm_ioctl(KVMState *s, int type, ...)
     /* Disable coverage collection for the current thread. After this call
     * coverage can be enabled for a different thread.
     */
+    for (int i = 0; i < kcov_n; i++) {
+        int cov = (int)(kcov_cover[i+1]-kvm_intel_base);
+        if (cov >= 0 && cov < MAX_KVM_INTEL){
+            if (total_coverage[cov] == 0){
+                total_coverage[cov] = 1;
+                wflag = 1;
+            }
+        }
+        else {
+            cov = (int)(kcov_cover[i+1]-kvm_base);
+            if (cov >= 0 && cov < MAX_KVM){  
+                // if (kflag != 1 && kvm_coverage[cov] == 0){
+                if (kvm_coverage[cov] == 0){
+                    kvm_coverage[cov] = 1;
+                    kflag = 1;
+                } 
+            }
+        } 
+    }
     if (ioctl(kcov_fd, KCOV_DISABLE, 0))
         perror("ioctl"), exit(1);
     if (ret == -1) {

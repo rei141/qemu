@@ -35,8 +35,7 @@
 extern int kcov_fd;
 extern unsigned long kcov_n;
 extern unsigned long * kcov_cover;
-extern FILE * kvm_intel_coverage_file;
-extern FILE * kvm_coverage_file;
+
 extern unsigned long kvm_intel_base;
 extern unsigned long kvm_base;
 extern int wflag;

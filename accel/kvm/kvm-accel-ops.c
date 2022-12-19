@@ -26,12 +26,12 @@
 
 #include <time.h>
 
-#define KCOV_TRACE_CMP 1
+// #define KCOV_TRACE_CMP 1
 
 
 unsigned long kcov_n;
 
-unsigned long * kcov_cover;
+
 int wflag;
 int kflag;
 
@@ -41,46 +41,12 @@ int kflag;
 
 // char kvm_intel_coverd[MAX_KVM_INTEL];
 // char kvm_coverd[MAX_KVM];
-uint8_t total_coverage[MAX_KVM_INTEL];
-uint8_t kvm_coverage[MAX_KVM];
+
 uint8_t bitmap[65536];
-FILE * kvm_intel_coverage_file;
-FILE * kvm_coverage_file;
+
 static void *kvm_vcpu_thread_fn(void *arg)
 {
-    /* Mmap buffer shared between kernel- and user-space. */
-    kcov_cover = (unsigned long *)mmap(NULL, COVER_SIZE * sizeof(unsigned long),
-                                    PROT_READ | PROT_WRITE, MAP_SHARED, kcov_fd, 0);
-    if ((void *)kcov_cover == MAP_FAILED)
-        perror("mmap"), exit(1);
 
-    FILE * total_cov_file;
-    // int n;
-    if ((total_cov_file = fopen("total_kvm_intel_coverage","rb")) != NULL){
-        // memset(total_coverage, 0, sizeof(total_coverage));
-        int n = fread(total_coverage, sizeof(uint8_t), MAX_KVM_INTEL, total_cov_file);
-        if (n) {
-            fclose(total_cov_file);
-        }
-        else {
-            perror("fread error");
-        }
-    }
-    FILE * kvm_cov_file;
-    if ((kvm_cov_file = fopen("total_kvm_coverage","rb")) != NULL){
-        // memset(kvm_coverage, 0, sizeof(total_coverage));
-        int n = fread(kvm_coverage, sizeof(uint8_t), MAX_KVM, kvm_cov_file);
-        if (n) {
-            fclose(kvm_cov_file);
-        }
-        else {
-            perror("fread error");
-        }
-    }
-    // if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
-    //     perror("ioctl"), exit(1);
-    // /* Reset coverage from the tail of the ioctl() call. */
-    // __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
 
     CPUState *cpu = arg;
     int r;
@@ -94,25 +60,6 @@ static void *kvm_vcpu_thread_fn(void *arg)
     current_cpu = cpu;
 
     r = kvm_init_vcpu(cpu, &error_fatal);
-
-        for (int i = 0; i < kcov_n; i++) {
-            int cov = (int)(kcov_cover[i+1]-kvm_intel_base);
-            if (cov >= 0 && cov < MAX_KVM_INTEL){
-                if (total_coverage[cov] == 0){
-                    total_coverage[cov] = 1;
-                    wflag = 1;
-                }
-            } else {
-                cov = (int)(kcov_cover[i+1]-kvm_base);
-                if (cov >= 0 && cov < MAX_KVM){  
-                    // if (kflag != 1 && kvm_coverage[cov] == 0){
-                    if (kvm_coverage[cov] == 0){
-                        kvm_coverage[cov] = 1;
-                        kflag = 1;
-                        } 
-                    }
-                } 
-            }
         
 
     kvm_init_cpu_signals(cpu);

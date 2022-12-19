@@ -29,10 +29,31 @@
 #ifdef CONFIG_SDL
 #include <SDL.h>
 #endif
+#include <fcntl.h>
+#include <pthread.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+// #define KCOV_INIT_TRACE _IOR('c', 1, unsigned long)
+// #define KCOV_ENABLE _IO('c', 100)
+// #define KCOV_DISABLE _IO('c', 101)
+// #define COVER_SIZE (64 << 14)
 
+// #define KCOV_TRACE_PC 0
+// #define KCOV_TRACE_CMP 1
 unsigned long kvm_intel_base;
 unsigned long kvm_base;
 int kcov_fd;
+unsigned long * kcov_cover;
+uint8_t total_coverage[MAX_KVM_INTEL];
+uint8_t kvm_coverage[MAX_KVM];
 int qemu_main(int argc, char **argv, char **envp)
 {
     FILE * fkvm_intel = fopen("/sys/module/kvm_intel/sections/.text","r");
@@ -67,10 +88,43 @@ int qemu_main(int argc, char **argv, char **envp)
     kcov_fd = open("/sys/kernel/debug/kcov", O_RDWR);
     if (kcov_fd == -1)
         perror("open"), exit(1);
+    FILE * total_cov_file;
+    // int n;
+    printf("hello  PROT_READ | PROT_WRITE, MAP_SHARED %d, %d\n", PROT_READ | PROT_WRITE, MAP_SHARED);
+    printf("hello  kcov_fd %d\n", kcov_fd);
+    printf("hello  COVER_SIZE %d\n", COVER_SIZE);
+        /* Mmap buffer shared between kernel- and user-space. */
+    kcov_cover = (unsigned long *)mmap(NULL, COVER_SIZE * sizeof(unsigned long),PROT_READ | PROT_WRITE, MAP_SHARED, kcov_fd, 0);
+    // printf("hello  COVER_SIZE %p\n", kcov_cover);
+    if ((void *)kcov_cover == MAP_FAILED)
+        perror("mmap"), exit(1);
+
+    if ((total_cov_file = fopen("total_kvm_intel_coverage","rb")) != NULL){
+        // memset(total_coverage, 0, sizeof(total_coverage));
+        int n = fread(total_coverage, sizeof(uint8_t), MAX_KVM_INTEL, total_cov_file);
+        if (n) {
+            fclose(total_cov_file);
+        }
+        else {
+            perror("fread error");
+        }
+    }
+    FILE * kvm_cov_file;
+    if ((kvm_cov_file = fopen("total_kvm_coverage","rb")) != NULL){
+        // memset(kvm_coverage, 0, sizeof(total_coverage));
+        int n = fread(kvm_coverage, sizeof(uint8_t), MAX_KVM, kvm_cov_file);
+        if (n) {
+            fclose(kvm_cov_file);
+        }
+        else {
+            perror("fread error");
+        }
+    }
 
     /* Setup trace mode and trace size. */
     if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE))
         perror("ioctl"), exit(1);
+    printf("hello\n");
     qemu_init(argc, argv, envp);
     qemu_main_loop();
     qemu_cleanup();
