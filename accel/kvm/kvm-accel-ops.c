@@ -28,17 +28,60 @@
 
 #define KCOV_TRACE_CMP 1
 
-int kcov_fd;
+
+unsigned long kcov_n;
+
 unsigned long * kcov_cover;
+int wflag;
+int kflag;
 
 
-unsigned long kvm_intel_base;
-unsigned long kvm_base;
 
 // unsigned int * kcov_intel_cover;
 
+// char kvm_intel_coverd[MAX_KVM_INTEL];
+// char kvm_coverd[MAX_KVM];
+uint8_t total_coverage[MAX_KVM_INTEL];
+uint8_t kvm_coverage[MAX_KVM];
+uint8_t bitmap[65536];
+FILE * kvm_intel_coverage_file;
+FILE * kvm_coverage_file;
 static void *kvm_vcpu_thread_fn(void *arg)
 {
+    /* Mmap buffer shared between kernel- and user-space. */
+    kcov_cover = (unsigned long *)mmap(NULL, COVER_SIZE * sizeof(unsigned long),
+                                    PROT_READ | PROT_WRITE, MAP_SHARED, kcov_fd, 0);
+    if ((void *)kcov_cover == MAP_FAILED)
+        perror("mmap"), exit(1);
+
+    FILE * total_cov_file;
+    // int n;
+    if ((total_cov_file = fopen("total_kvm_intel_coverage","rb")) != NULL){
+        // memset(total_coverage, 0, sizeof(total_coverage));
+        int n = fread(total_coverage, sizeof(uint8_t), MAX_KVM_INTEL, total_cov_file);
+        if (n) {
+            fclose(total_cov_file);
+        }
+        else {
+            perror("fread error");
+        }
+    }
+    FILE * kvm_cov_file;
+    if ((kvm_cov_file = fopen("total_kvm_coverage","rb")) != NULL){
+        // memset(kvm_coverage, 0, sizeof(total_coverage));
+        int n = fread(kvm_coverage, sizeof(uint8_t), MAX_KVM, kvm_cov_file);
+        if (n) {
+            fclose(kvm_cov_file);
+        }
+        else {
+            perror("fread error");
+        }
+    }
+    // if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
+    //     perror("ioctl"), exit(1);
+    // /* Reset coverage from the tail of the ioctl() call. */
+    // __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
+
     CPUState *cpu = arg;
     int r;
 
@@ -51,6 +94,27 @@ static void *kvm_vcpu_thread_fn(void *arg)
     current_cpu = cpu;
 
     r = kvm_init_vcpu(cpu, &error_fatal);
+
+        for (int i = 0; i < kcov_n; i++) {
+            int cov = (int)(kcov_cover[i+1]-kvm_intel_base);
+            if (cov >= 0 && cov < MAX_KVM_INTEL){
+                if (total_coverage[cov] == 0){
+                    total_coverage[cov] = 1;
+                    wflag = 1;
+                }
+            } else {
+                cov = (int)(kcov_cover[i+1]-kvm_base);
+                if (cov >= 0 && cov < MAX_KVM){  
+                    // if (kflag != 1 && kvm_coverage[cov] == 0){
+                    if (kvm_coverage[cov] == 0){
+                        kvm_coverage[cov] = 1;
+                        kflag = 1;
+                        } 
+                    }
+                } 
+            }
+        
+
     kvm_init_cpu_signals(cpu);
 
     /* signal CPU creation */
@@ -58,55 +122,10 @@ static void *kvm_vcpu_thread_fn(void *arg)
     qemu_guest_random_seed_thread_part2(cpu->random_seed);
 
 
-
     // clock_t start_time, end_time;
     // start_time = clock();
 
     // printf("percpu start\n");
-    kcov_fd = open("/sys/kernel/debug/kcov", O_RDWR);
-    if (kcov_fd == -1)
-        perror("open"), exit(1);
-
-
-
-    /* Setup trace mode and trace size. */
-    if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE))
-        perror("ioctl"), exit(1);
-    
-    FILE * fkvm_intel = fopen("/sys/module/kvm_intel/sections/.text","r");
-    if (fkvm_intel == NULL)
-        perror("fopen"), exit(1);
-
-    FILE * fkvm = fopen("/sys/module/kvm/sections/.text","r");
-    if (fkvm == NULL)
-        perror("fopen"), exit(1);
-
-    // start point of .text of kvm/kvm-intel
-    char kvm_intel_str[18];
-    char kvm_str[18];
-
-    int n = fread(kvm_intel_str, sizeof(char),18,fkvm_intel);
-    if(n != 18)
-        perror("fread"), exit(1);
-    kvm_intel_base = strtoul(kvm_intel_str, NULL,0);
-    // fprintf(kvm_intel_coverage_file, "0x%lx\n", kvm_intel_base);
-
-    n = fread(kvm_str, sizeof(char),18,fkvm);
-    if(n != 18)
-        perror("fread"), exit(1);
-    kvm_base = strtoul(kvm_str, NULL,0);
-    // fprintf(kvm_coverage_file, "0x%lx\n", kvm_base);
-
-    if (fclose(fkvm_intel) == EOF)
-        perror("fclose"), exit(1);
-    if (fclose(fkvm) == EOF)
-        perror("fclose"), exit(1);
-
-    /* Mmap buffer shared between kernel- and user-space. */
-    kcov_cover = (unsigned long *)mmap(NULL, COVER_SIZE * sizeof(unsigned long),
-                                    PROT_READ | PROT_WRITE, MAP_SHARED, kcov_fd, 0);
-    if ((void *)kcov_cover == MAP_FAILED)
-        perror("mmap"), exit(1);
 
     // kcov_intel_cover = (unsigned int *)malloc(COVER_SIZE * sizeof(unsigned int));
     // if (kcov_intel_cover == NULL)
@@ -116,6 +135,9 @@ static void *kvm_vcpu_thread_fn(void *arg)
     //     FILE * fuga = fopen("fuga","w");
     //     fclose(fuga);
     // }
+
+    // unsigned long kcov_n;
+    // int cov;
     do {
         if (cpu_can_run(cpu)) {
             // printf("%d\n",++count);
@@ -123,19 +145,55 @@ static void *kvm_vcpu_thread_fn(void *arg)
                 r = afl_shm_get_cov_kvm_cpu_exec(cpu);
             // }
             // else {
-                // r = get_cov_kvm_cpu_exec(cpu);
+                // r = kvm_cpu_exec(cpu);
+        // kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
+        // printf("hello %ld\n",kcov_n);
+        // for (int i = 0; i < kcov_n; i++) {
+        //     cov = (int)(kcov_cover[i+1]-kvm_intel_base);
+        //     if (cov >= 0 && cov < MAX_KVM_INTEL){
+        //         // cur_location = hash_int_to_16b(cov);
+        //         // if(afl_area_ptr[(cur_location ^ prev_location)] != 255){
+        //         // if(afl_area_ptr[(cur_location)] != 255){
+        //         //     afl_area_ptr[(cur_location)]++;
+        //         //     // afl_area_ptr[(cur_location ^ prev_location)]++;
+        //         //     }
+        //         // prev_location = cur_location >> 1;
+        //         // if (kvm_intel_coverd[cov] == 0){
+        //         //     kvm_intel_coverd[cov] = 1;
+        //         //     fprintf(kvm_intel_coverage_file,"0x%x\n",cov);
+        //         // }
+        //         // if (wflag != 1 && total_coverage[cov] == 0){
+        //         if (total_coverage[cov] == 0){
+        //             total_coverage[cov] = 1;
+        //             // wflag = 1;
+        //         }
+        //     }
+        // }
+        // struct timeval tv;
+        // struct tm *tm;
+
+        // gettimeofday(&tv, NULL);
+
+        // tm = localtime(&tv.tv_sec);
+        // char f_name[100];
+        // sprintf(f_name,"record/n_intel_%02d_%02d_%02d_%02d_%02d_%06ld",tm->tm_mon+1, tm->tm_mday,
+        //  tm->tm_hour, tm->tm_min, tm->tm_sec,tv.tv_usec);
+        // FILE * record = fopen(f_name,"w");
+        // fwrite(total_coverage,sizeof(uint8_t),MAX_KVM_INTEL,record);
+        // fclose(record);
             // }
             if (r == EXCP_DEBUG) {
                 cpu_handle_guest_debug(cpu);
             }
         }
+    
     //         end_time=clock();
     // FILE * tmp = fopen("/home/ishii/nestedFuzz/VMXbench/tmp","a");
     // fprintf(tmp,"%f\n",(double)(end_time-start_time)/CLOCKS_PER_SEC);
     // start_time=clock();
         qemu_wait_io_event(cpu);
     } while (!cpu->unplug || cpu_can_run(cpu));
-    // printf("hello\n");
+    // printf("hello3\n");
     // FILE * tmp = fopen("/home/ishii/work/VMXbench/hello","w");
     // fprintf(tmp,"hello\n");
     kvm_destroy_vcpu(cpu);
@@ -143,6 +201,8 @@ static void *kvm_vcpu_thread_fn(void *arg)
     qemu_mutex_unlock_iothread();
     rcu_unregister_thread();
 
+        if (ioctl(kcov_fd, KCOV_DISABLE, 0))
+            perror("ioctl"), exit(1);
     if (munmap(kcov_cover, COVER_SIZE * sizeof(unsigned long)))
         perror("munmap"), exit(1);
     if (close(kcov_fd))

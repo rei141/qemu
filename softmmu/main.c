@@ -25,13 +25,52 @@
 #include "qemu/osdep.h"
 #include "qemu-main.h"
 #include "sysemu/sysemu.h"
-
+#include "../accel/kvm/kvm-cpus.h"
 #ifdef CONFIG_SDL
 #include <SDL.h>
 #endif
 
+unsigned long kvm_intel_base;
+unsigned long kvm_base;
+int kcov_fd;
 int qemu_main(int argc, char **argv, char **envp)
 {
+    FILE * fkvm_intel = fopen("/sys/module/kvm_intel/sections/.text","r");
+    if (fkvm_intel == NULL)
+        perror("fopen"), exit(1);
+
+    FILE * fkvm = fopen("/sys/module/kvm/sections/.text","r");
+    if (fkvm == NULL)
+        perror("fopen"), exit(1);
+
+    // start point of .text of kvm/kvm-intel
+    char kvm_intel_str[18];
+    char kvm_str[18];
+    // int count = 0;
+    int n = fread(kvm_intel_str, sizeof(char),18,fkvm_intel);
+    if(n != 18)
+        perror("fread"), exit(1);
+    kvm_intel_base = strtoul(kvm_intel_str, NULL,0);
+    // fprintf(kvm_intel_coverage_file, "0x%lx\n", kvm_intel_base);
+
+    n = fread(kvm_str, sizeof(char),18,fkvm);
+    if(n != 18)
+        perror("fread"), exit(1);
+    kvm_base = strtoul(kvm_str, NULL,0);
+    // fprintf(kvm_coverage_file, "0x%lx\n", kvm_base);
+
+    if (fclose(fkvm_intel) == EOF)
+        perror("fclose"), exit(1);
+    if (fclose(fkvm) == EOF)
+        perror("fclose"), exit(1);
+
+    kcov_fd = open("/sys/kernel/debug/kcov", O_RDWR);
+    if (kcov_fd == -1)
+        perror("open"), exit(1);
+
+    /* Setup trace mode and trace size. */
+    if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE))
+        perror("ioctl"), exit(1);
     qemu_init(argc, argv, envp);
     qemu_main_loop();
     qemu_cleanup();

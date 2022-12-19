@@ -272,10 +272,13 @@ int kvm_update_guest_debug(CPUState *cpu, unsigned long reinject_trap);
 /* internal API */
 
 int kvm_ioctl(KVMState *s, int type, ...);
+int kcov_kvm_ioctl(KVMState *s, int type, ...);
 
 int kvm_vm_ioctl(KVMState *s, int type, ...);
+int kcov_kvm_vm_ioctl(KVMState *s, int type, ...);
 
 int kvm_vcpu_ioctl(CPUState *cpu, int type, ...);
+int kcov_kvm_vcpu_ioctl(CPUState *cpu, int type, ...);
 
 /**
  * kvm_device_ioctl - call an ioctl on a kvm device

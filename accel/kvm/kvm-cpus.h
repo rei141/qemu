@@ -33,11 +33,18 @@
 #define KCOV_TRACE_CMP 1
 
 extern int kcov_fd;
+extern unsigned long kcov_n;
 extern unsigned long * kcov_cover;
 extern FILE * kvm_intel_coverage_file;
 extern FILE * kvm_coverage_file;
 extern unsigned long kvm_intel_base;
 extern unsigned long kvm_base;
+extern int wflag;
+extern int kflag;
+#define MAX_KVM_INTEL 0xc0000
+#define MAX_KVM 0x187000
+// extern uint8_t total_coverage[MAX_KVM_INTEL];
+// extern uint8_t kvm_coverage[MAX_KVM];
 
 int kvm_init_vcpu(CPUState *cpu, Error **errp);
 int kvm_cpu_exec(CPUState *cpu);

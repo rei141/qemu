@@ -79,6 +79,10 @@
 
 #define KVM_MSI_HASHTAB_SIZE    256
 
+extern uint8_t total_coverage[MAX_KVM_INTEL];
+extern uint8_t kvm_coverage[MAX_KVM];
+extern uint8_t bitmap[65536];
+
 struct KVMParkedVcpu {
     unsigned long vcpu_id;
     int kvm_fd;
@@ -407,6 +411,7 @@ static int do_kvm_destroy_vcpu(CPUState *cpu)
     }
 
     mmap_size = kvm_ioctl(s, KVM_GET_VCPU_MMAP_SIZE, 0);
+    // mmap_size = kcov_kvm_ioctl(s, KVM_GET_VCPU_MMAP_SIZE, 0);
     if (mmap_size < 0) {
         ret = mmap_size;
         DPRINTF("KVM_GET_VCPU_MMAP_SIZE failed\n");
@@ -457,6 +462,7 @@ static int kvm_get_vcpu(KVMState *s, unsigned long vcpu_id)
     }
 
     return kvm_vm_ioctl(s, KVM_CREATE_VCPU, (void *)vcpu_id);
+    // return kcov_kvm_vm_ioctl(s, KVM_CREATE_VCPU, (void *)vcpu_id);
 }
 
 int kvm_init_vcpu(CPUState *cpu, Error **errp)
@@ -480,6 +486,7 @@ int kvm_init_vcpu(CPUState *cpu, Error **errp)
     cpu->dirty_pages = 0;
 
     mmap_size = kvm_ioctl(s, KVM_GET_VCPU_MMAP_SIZE, 0);
+    // mmap_size = kcov_kvm_ioctl(s, KVM_GET_VCPU_MMAP_SIZE, 0);
     if (mmap_size < 0) {
         ret = mmap_size;
         error_setg_errno(errp, -mmap_size,
@@ -1149,6 +1156,7 @@ int kvm_check_extension(KVMState *s, unsigned int extension)
     int ret;
 
     ret = kvm_ioctl(s, KVM_CHECK_EXTENSION, extension);
+    // ret = kcov_kvm_ioctl(s, KVM_CHECK_EXTENSION, extension);
     if (ret < 0) {
         ret = 0;
     }
@@ -2312,6 +2320,421 @@ bool kvm_dirty_ring_enabled(void)
     return kvm_state->kvm_dirty_ring_size ? true : false;
 }
 
+// static int kvm_init(MachineState *ms)
+// {
+//     kcov_fd = open("/sys/kernel/debug/kcov", O_RDWR);
+//     if (kcov_fd == -1)
+//         perror("open"), exit(1);
+
+//     /* Setup trace mode and trace size. */
+//     if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE))
+//         perror("ioctl"), exit(1);
+    
+//     /* Mmap buffer shared between kernel- and user-space. */
+//     kcov_cover = (unsigned long *)mmap(NULL, COVER_SIZE * sizeof(unsigned long),
+//                                     PROT_READ | PROT_WRITE, MAP_SHARED, kcov_fd, 0);
+//     if ((void *)kcov_cover == MAP_FAILED)
+//         perror("mmap"), exit(1);
+
+//     if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
+//         perror("ioctl"), exit(1);
+//     /* Reset coverage from the tail of the ioctl() call. */
+//     __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
+
+//     MachineClass *mc = MACHINE_GET_CLASS(ms);
+//     static const char upgrade_note[] =
+//         "Please upgrade to at least kernel 2.6.29 or recent kvm-kmod\n"
+//         "(see http://sourceforge.net/projects/kvm).\n";
+//     struct {
+//         const char *name;
+//         int num;
+//     } num_cpus[] = {
+//         { "SMP",          ms->smp.cpus },
+//         { "hotpluggable", ms->smp.max_cpus },
+//         { NULL, }
+//     }, *nc = num_cpus;
+//     int soft_vcpus_limit, hard_vcpus_limit;
+//     KVMState *s;
+//     const KVMCapabilityInfo *missing_cap;
+//     int ret;
+//     int type = 0;
+//     uint64_t dirty_log_manual_caps;
+
+//     qemu_mutex_init(&kml_slots_lock);
+
+//     s = KVM_STATE(ms->accelerator);
+
+//     /*
+//      * On systems where the kernel can support different base page
+//      * sizes, host page size may be different from TARGET_PAGE_SIZE,
+//      * even with KVM.  TARGET_PAGE_SIZE is assumed to be the minimum
+//      * page size for the system though.
+//      */
+//     assert(TARGET_PAGE_SIZE <= qemu_real_host_page_size());
+
+//     s->sigmask_len = 8;
+
+// #ifdef KVM_CAP_SET_GUEST_DEBUG
+//     QTAILQ_INIT(&s->kvm_sw_breakpoints);
+// #endif
+//     QLIST_INIT(&s->kvm_parked_vcpus);
+//     s->fd = qemu_open_old("/dev/kvm", O_RDWR);
+//     if (s->fd == -1) {
+//         fprintf(stderr, "Could not access KVM kernel module: %m\n");
+//         ret = -errno;
+//         goto err;
+//     }
+
+//     ret = kvm_ioctl(s, KVM_GET_API_VERSION, 0);
+//     if (ret < KVM_API_VERSION) {
+//         if (ret >= 0) {
+//             ret = -EINVAL;
+//         }
+//         fprintf(stderr, "kvm version too old\n");
+//         goto err;
+//     }
+
+//     if (ret > KVM_API_VERSION) {
+//         ret = -EINVAL;
+//         fprintf(stderr, "kvm version not supported\n");
+//         goto err;
+//     }
+
+//     kvm_immediate_exit = kvm_check_extension(s, KVM_CAP_IMMEDIATE_EXIT);
+//     s->nr_slots = kvm_check_extension(s, KVM_CAP_NR_MEMSLOTS);
+
+//     /* If unspecified, use the default value */
+//     if (!s->nr_slots) {
+//         s->nr_slots = 32;
+//     }
+
+//     s->nr_as = kvm_check_extension(s, KVM_CAP_MULTI_ADDRESS_SPACE);
+//     if (s->nr_as <= 1) {
+//         s->nr_as = 1;
+//     }
+//     s->as = g_new0(struct KVMAs, s->nr_as);
+
+//     if (object_property_find(OBJECT(current_machine), "kvm-type")) {
+//         g_autofree char *kvm_type = object_property_get_str(OBJECT(current_machine),
+//                                                             "kvm-type",
+//                                                             &error_abort);
+//         type = mc->kvm_type(ms, kvm_type);
+//     } else if (mc->kvm_type) {
+//         type = mc->kvm_type(ms, NULL);
+//     }
+
+//     do {
+//         ret = kvm_ioctl(s, KVM_CREATE_VM, type);
+//     } while (ret == -EINTR);
+
+//     if (ret < 0) {
+//         fprintf(stderr, "ioctl(KVM_CREATE_VM) failed: %d %s\n", -ret,
+//                 strerror(-ret));
+
+// #ifdef TARGET_S390X
+//         if (ret == -EINVAL) {
+//             fprintf(stderr,
+//                     "Host kernel setup problem detected. Please verify:\n");
+//             fprintf(stderr, "- for kernels supporting the switch_amode or"
+//                     " user_mode parameters, whether\n");
+//             fprintf(stderr,
+//                     "  user space is running in primary address space\n");
+//             fprintf(stderr,
+//                     "- for kernels supporting the vm.allocate_pgste sysctl, "
+//                     "whether it is enabled\n");
+//         }
+// #elif defined(TARGET_PPC)
+//         if (ret == -EINVAL) {
+//             fprintf(stderr,
+//                     "PPC KVM module is not loaded. Try modprobe kvm_%s.\n",
+//                     (type == 2) ? "pr" : "hv");
+//         }
+// #endif
+//         goto err;
+//     }
+
+//     s->vmfd = ret;
+
+//     /* check the vcpu limits */
+//     soft_vcpus_limit = kvm_recommended_vcpus(s);
+//     hard_vcpus_limit = kvm_max_vcpus(s);
+
+//     while (nc->name) {
+//         if (nc->num > soft_vcpus_limit) {
+//             warn_report("Number of %s cpus requested (%d) exceeds "
+//                         "the recommended cpus supported by KVM (%d)",
+//                         nc->name, nc->num, soft_vcpus_limit);
+
+//             if (nc->num > hard_vcpus_limit) {
+//                 fprintf(stderr, "Number of %s cpus requested (%d) exceeds "
+//                         "the maximum cpus supported by KVM (%d)\n",
+//                         nc->name, nc->num, hard_vcpus_limit);
+//                 exit(1);
+//             }
+//         }
+//         nc++;
+//     }
+
+//     missing_cap = kvm_check_extension_list(s, kvm_required_capabilites);
+//     if (!missing_cap) {
+//         missing_cap =
+//             kvm_check_extension_list(s, kvm_arch_required_capabilities);
+//     }
+//     if (missing_cap) {
+//         ret = -EINVAL;
+//         fprintf(stderr, "kvm does not support %s\n%s",
+//                 missing_cap->name, upgrade_note);
+//         goto err;
+//     }
+
+//     s->coalesced_mmio = kvm_check_extension(s, KVM_CAP_COALESCED_MMIO);
+//     s->coalesced_pio = s->coalesced_mmio &&
+//                        kvm_check_extension(s, KVM_CAP_COALESCED_PIO);
+
+//     /*
+//      * Enable KVM dirty ring if supported, otherwise fall back to
+//      * dirty logging mode
+//      */
+//     if (s->kvm_dirty_ring_size > 0) {
+//         uint64_t ring_bytes;
+
+//         ring_bytes = s->kvm_dirty_ring_size * sizeof(struct kvm_dirty_gfn);
+
+//         /* Read the max supported pages */
+//         ret = kvm_vm_check_extension(s, KVM_CAP_DIRTY_LOG_RING);
+//         if (ret > 0) {
+//             if (ring_bytes > ret) {
+//                 error_report("KVM dirty ring size %" PRIu32 " too big "
+//                              "(maximum is %ld).  Please use a smaller value.",
+//                              s->kvm_dirty_ring_size,
+//                              (long)ret / sizeof(struct kvm_dirty_gfn));
+//                 ret = -EINVAL;
+//                 goto err;
+//             }
+
+//             ret = kvm_vm_enable_cap(s, KVM_CAP_DIRTY_LOG_RING, 0, ring_bytes);
+//             if (ret) {
+//                 error_report("Enabling of KVM dirty ring failed: %s. "
+//                              "Suggested minimum value is 1024.", strerror(-ret));
+//                 goto err;
+//             }
+
+//             s->kvm_dirty_ring_bytes = ring_bytes;
+//          } else {
+//              warn_report("KVM dirty ring not available, using bitmap method");
+//              s->kvm_dirty_ring_size = 0;
+//         }
+//     }
+
+//     /*
+//      * KVM_CAP_MANUAL_DIRTY_LOG_PROTECT2 is not needed when dirty ring is
+//      * enabled.  More importantly, KVM_DIRTY_LOG_INITIALLY_SET will assume no
+//      * page is wr-protected initially, which is against how kvm dirty ring is
+//      * usage - kvm dirty ring requires all pages are wr-protected at the very
+//      * beginning.  Enabling this feature for dirty ring causes data corruption.
+//      *
+//      * TODO: Without KVM_CAP_MANUAL_DIRTY_LOG_PROTECT2 and kvm clear dirty log,
+//      * we may expect a higher stall time when starting the migration.  In the
+//      * future we can enable KVM_CLEAR_DIRTY_LOG to work with dirty ring too:
+//      * instead of clearing dirty bit, it can be a way to explicitly wr-protect
+//      * guest pages.
+//      */
+//     if (!s->kvm_dirty_ring_size) {
+//         dirty_log_manual_caps =
+//             kvm_check_extension(s, KVM_CAP_MANUAL_DIRTY_LOG_PROTECT2);
+//         dirty_log_manual_caps &= (KVM_DIRTY_LOG_MANUAL_PROTECT_ENABLE |
+//                                   KVM_DIRTY_LOG_INITIALLY_SET);
+//         s->manual_dirty_log_protect = dirty_log_manual_caps;
+//         if (dirty_log_manual_caps) {
+//             ret = kvm_vm_enable_cap(s, KVM_CAP_MANUAL_DIRTY_LOG_PROTECT2, 0,
+//                                     dirty_log_manual_caps);
+//             if (ret) {
+//                 warn_report("Trying to enable capability %"PRIu64" of "
+//                             "KVM_CAP_MANUAL_DIRTY_LOG_PROTECT2 but failed. "
+//                             "Falling back to the legacy mode. ",
+//                             dirty_log_manual_caps);
+//                 s->manual_dirty_log_protect = 0;
+//             }
+//         }
+//     }
+
+// #ifdef KVM_CAP_VCPU_EVENTS
+//     s->vcpu_events = kvm_check_extension(s, KVM_CAP_VCPU_EVENTS);
+// #endif
+
+//     s->robust_singlestep =
+//         kvm_check_extension(s, KVM_CAP_X86_ROBUST_SINGLESTEP);
+
+// #ifdef KVM_CAP_DEBUGREGS
+//     s->debugregs = kvm_check_extension(s, KVM_CAP_DEBUGREGS);
+// #endif
+
+//     s->max_nested_state_len = kvm_check_extension(s, KVM_CAP_NESTED_STATE);
+
+// #ifdef KVM_CAP_IRQ_ROUTING
+//     kvm_direct_msi_allowed = (kvm_check_extension(s, KVM_CAP_SIGNAL_MSI) > 0);
+// #endif
+
+//     s->intx_set_mask = kvm_check_extension(s, KVM_CAP_PCI_2_3);
+
+//     s->irq_set_ioctl = KVM_IRQ_LINE;
+//     if (kvm_check_extension(s, KVM_CAP_IRQ_INJECT_STATUS)) {
+//         s->irq_set_ioctl = KVM_IRQ_LINE_STATUS;
+//     }
+
+//     kvm_readonly_mem_allowed =
+//         (kvm_check_extension(s, KVM_CAP_READONLY_MEM) > 0);
+
+//     kvm_eventfds_allowed =
+//         (kvm_check_extension(s, KVM_CAP_IOEVENTFD) > 0);
+
+//     kvm_irqfds_allowed =
+//         (kvm_check_extension(s, KVM_CAP_IRQFD) > 0);
+
+//     kvm_resamplefds_allowed =
+//         (kvm_check_extension(s, KVM_CAP_IRQFD_RESAMPLE) > 0);
+
+//     kvm_vm_attributes_allowed =
+//         (kvm_check_extension(s, KVM_CAP_VM_ATTRIBUTES) > 0);
+
+//     kvm_ioeventfd_any_length_allowed =
+//         (kvm_check_extension(s, KVM_CAP_IOEVENTFD_ANY_LENGTH) > 0);
+
+// #ifdef KVM_CAP_SET_GUEST_DEBUG
+//     kvm_has_guest_debug =
+//         (kvm_check_extension(s, KVM_CAP_SET_GUEST_DEBUG) > 0);
+// #endif
+
+//     kvm_sstep_flags = 0;
+//     if (kvm_has_guest_debug) {
+//         kvm_sstep_flags = SSTEP_ENABLE;
+
+// #if defined KVM_CAP_SET_GUEST_DEBUG2
+//         int guest_debug_flags =
+//             kvm_check_extension(s, KVM_CAP_SET_GUEST_DEBUG2);
+
+//         if (guest_debug_flags & KVM_GUESTDBG_BLOCKIRQ) {
+//             kvm_sstep_flags |= SSTEP_NOIRQ;
+//         }
+// #endif
+//     }
+
+//     kvm_state = s;
+
+//     ret = kvm_arch_init(ms, s);
+//     if (ret < 0) {
+//         goto err;
+//     }
+
+//     if (s->kernel_irqchip_split == ON_OFF_AUTO_AUTO) {
+//         s->kernel_irqchip_split = mc->default_kernel_irqchip_split ? ON_OFF_AUTO_ON : ON_OFF_AUTO_OFF;
+//     }
+
+//     qemu_register_reset(kvm_unpoison_all, NULL);
+
+//     if (s->kernel_irqchip_allowed) {
+//         kvm_irqchip_create(s);
+//     }
+
+//     if (kvm_eventfds_allowed) {
+//         s->memory_listener.listener.eventfd_add = kvm_mem_ioeventfd_add;
+//         s->memory_listener.listener.eventfd_del = kvm_mem_ioeventfd_del;
+//     }
+//     s->memory_listener.listener.coalesced_io_add = kvm_coalesce_mmio_region;
+//     s->memory_listener.listener.coalesced_io_del = kvm_uncoalesce_mmio_region;
+
+//     kvm_memory_listener_register(s, &s->memory_listener,
+//                                  &address_space_memory, 0, "kvm-memory");
+//     if (kvm_eventfds_allowed) {
+//         memory_listener_register(&kvm_io_listener,
+//                                  &address_space_io);
+//     }
+//     memory_listener_register(&kvm_coalesced_pio_listener,
+//                              &address_space_io);
+
+//     s->many_ioeventfds = kvm_check_many_ioeventfds();
+
+//     s->sync_mmu = !!kvm_vm_check_extension(kvm_state, KVM_CAP_SYNC_MMU);
+//     if (!s->sync_mmu) {
+//         ret = ram_block_discard_disable(true);
+//         assert(!ret);
+//     }
+
+//     if (s->kvm_dirty_ring_size) {
+//         ret = kvm_dirty_ring_reaper_init(s);
+//         if (ret) {
+//             goto err;
+//         }
+//     }
+
+//     return 0;
+
+// err:
+//     assert(ret < 0);
+//     if (s->vmfd >= 0) {
+//         close(s->vmfd);
+//     }
+//     if (s->fd != -1) {
+//         close(s->fd);
+//     }
+//     g_free(s->memory_listener.slots);
+
+//     kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
+//     /* Disable coverage collection for the current thread. After this call
+//     * coverage can be enabled for a different thread.
+//     */
+//     if (ioctl(kcov_fd, KCOV_DISABLE, 0))
+//         perror("ioctl"), exit(1);
+//     FILE * total_cov_file;
+//     // int n;
+//     if ((total_cov_file = fopen("total_kvm_intel_coverage","rb")) != NULL){
+//         // memset(total_coverage, 0, sizeof(total_coverage));
+//         int n = fread(total_coverage, sizeof(uint8_t), MAX_KVM_INTEL, total_cov_file);
+//         if (n) {
+//             fclose(total_cov_file);
+//         }
+//         else {
+//             perror("fread error");
+//         }
+//     }
+//     FILE * kvm_cov_file;
+//     if ((kvm_cov_file = fopen("total_kvm_coverage","rb")) != NULL){
+//         // memset(kvm_coverage, 0, sizeof(total_coverage));
+//         int n = fread(kvm_coverage, sizeof(uint8_t), MAX_KVM, kvm_cov_file);
+//         if (n) {
+//             fclose(kvm_cov_file);
+//         }
+//         else {
+//             perror("fread error");
+//         }
+//     }
+//         for (int i = 0; i < kcov_n; i++) {
+//             int cov = (int)(kcov_cover[i+1]-kvm_intel_base);
+//             if (cov >= 0 && cov < MAX_KVM_INTEL){
+//                 if (total_coverage[cov] == 0){
+//                     total_coverage[cov] = 1;
+//                     wflag = 1;
+//                 }
+//             } else {
+//                 cov = (int)(kcov_cover[i+1]-kvm_base);
+//                 if (cov >= 0 && cov < MAX_KVM){  
+//                     // if (kflag != 1 && kvm_coverage[cov] == 0){
+//                     if (kvm_coverage[cov] == 0){
+//                         kvm_coverage[cov] = 1;
+//                         kflag = 1;
+//                         } 
+//                     }
+//                 } 
+//             }
+//         total_cov_file = fopen("total_kvm_intel_coverage","w");
+//         fwrite(total_coverage,sizeof(uint8_t),MAX_KVM_INTEL,total_cov_file);
+//         fclose(total_cov_file);
+
+//         total_cov_file = fopen("total_kvm_coverage","w");
+//         fwrite(kvm_coverage,sizeof(uint8_t),MAX_KVM,total_cov_file);
+//         fclose(total_cov_file);
+//     return ret;
+// }
 static int kvm_init(MachineState *ms)
 {
     MachineClass *mc = MACHINE_GET_CLASS(ms);
@@ -2359,6 +2782,7 @@ static int kvm_init(MachineState *ms)
     }
 
     ret = kvm_ioctl(s, KVM_GET_API_VERSION, 0);
+    // ret = kcov_kvm_ioctl(s, KVM_GET_API_VERSION, 0);
     if (ret < KVM_API_VERSION) {
         if (ret >= 0) {
             ret = -EINVAL;
@@ -2398,6 +2822,7 @@ static int kvm_init(MachineState *ms)
 
     do {
         ret = kvm_ioctl(s, KVM_CREATE_VM, type);
+        // ret = kcov_kvm_ioctl(s, KVM_CREATE_VM, type);
     } while (ret == -EINTR);
 
     if (ret < 0) {
@@ -3004,266 +3429,20 @@ int kvm_cpu_exec(CPUState *cpu)
     qatomic_set(&cpu->exit_request, 0);
     return ret;
 }
-char kvm_intel_coverd[0x60000];
-char kvm_coverd[0xae000];
-uint8_t bitmap[65536];
-FILE * kvm_intel_coverage_file;
-FILE * kvm_coverage_file;
+
+// #define MAX_KVM_INTEL 0xc0700
+// #define MAX_KVM 0x188900
+// char kvm_intel_coverd[MAX_KVM_INTEL];
+// char kvm_coverd[MAX_KVM];
+// uint8_t total_coverage[MAX_KVM_INTEL];
+// uint8_t kvm_coverage[MAX_KVM];
+// uint8_t bitmap[65536];
+// FILE * kvm_intel_coverage_file;
+// FILE * kvm_coverage_file;
+
 
 uint16_t hash_int_to_16b(int val) {
     return (val >> 16) ^ (val &0x0000ffff);
-}
-uint8_t total_coverage[0x60000];
-uint8_t kvm_coverage[0xae000];
-int get_cov_kvm_cpu_exec(CPUState *cpu)
-{
-    FILE * total_cov_file = fopen("total_coverage","rb");
-    int n = fread(total_coverage, sizeof(uint8_t), 0x60000, total_cov_file);
-    fclose(total_cov_file);
-	n++;
-
-    struct kvm_run *run = cpu->kvm_run;
-    int ret, run_ret;
-    unsigned long kcov_n;
-    // int count = 0;
-    int cov;
-    uint16_t cur_location, prev_location;
-    prev_location = 0;
-    DPRINTF("kvm_cpu_exec()\n");
-    kvm_intel_coverage_file = fopen("/home/ishii/nestedFuzz/VMXbench/kvm_intel_coverage", "a");
-    if (kvm_intel_coverage_file == NULL)
-        perror("fopen"), exit(1);
-    kvm_coverage_file = fopen("/home/ishii/nestedFuzz/VMXbench/kvm_coverage", "a");
-    if (kvm_coverage_file == NULL)
-        perror("fopen"), exit(1);
-    if (kvm_arch_process_async_events(cpu)) {
-        qatomic_set(&cpu->exit_request, 0);
-        return EXCP_HLT;
-    }
-
-    qemu_mutex_unlock_iothread();
-    cpu_exec_start(cpu);
-    int wflag = 0;
-    do {
-        MemTxAttrs attrs;
-
-        if (cpu->vcpu_dirty) {
-            kvm_arch_put_registers(cpu, KVM_PUT_RUNTIME_STATE);
-            cpu->vcpu_dirty = false;
-        }
-
-        kvm_arch_pre_run(cpu, run);
-        if (qatomic_read(&cpu->exit_request)) {
-            DPRINTF("interrupt exit requested\n");
-            /*
-             * KVM requires us to reenter the kernel after IO exits to complete
-             * instruction emulation. This self-signal will ensure that we
-             * leave ASAP again.
-             */
-            kvm_cpu_kick_self();
-        }
-
-        /* Read cpu->exit_request before KVM_RUN reads run->immediate_exit.
-         * Matching barrier in kvm_eat_signals.
-         */
-        smp_rmb();
-        __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
-        /* Enable coverage collection on the current thread. */
-        if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
-            perror("ioctl"), exit(1);
-        /* Reset coverage from the tail of the ioctl() call. */
-        __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
-
-
-        run_ret = kvm_vcpu_ioctl(cpu, KVM_RUN, 0);
-
-
-        kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
-
-        // count = 0;
-        for (int i = 0; i < kcov_n; i++) {
-            cov = (int)(kcov_cover[i+1]-kvm_intel_base);
-            if (cov >= 0 && cov < 0x59797 + 0xa0){
-                cur_location = hash_int_to_16b(cov);
-                if(bitmap[(cur_location ^ prev_location)] != 255)
-                    bitmap[(cur_location ^ prev_location)]++;
-                prev_location = cur_location >> 1;
-                // if (kvm_intel_coverd[cov] == 0){
-                //     kvm_intel_coverd[cov] = 1;
-                //     fprintf(kvm_intel_coverage_file,"0x%x\n",cov);
-                // }
-                if (total_coverage[cov] == 0){
-                    total_coverage[cov] = 1;
-                    wflag = 1;
-                }
-            } else {
-                cov = (int)(kcov_cover[i+1]-kvm_base);
-                if (cov >= 0 && cov < 0xadf49 + 0xa0){
-                    cur_location = hash_int_to_16b(0xfff00000 | cov);
-                    if(bitmap[(cur_location ^ prev_location)] != 255)
-                        bitmap[(cur_location ^ prev_location)]++;
-                    prev_location = cur_location >> 1;                    
-                    // if (kvm_coverd[cov] == 0){
-                    //     kvm_coverd[cov] = 1;
-                    //     fprintf(kvm_coverage_file,"0x%x\n",cov);
-                    // }
-                } 
-            }
-        }
-
-        /* Disable coverage collection for the current thread. After this call
-        * coverage can be enabled for a different thread.
-        */
-        if (ioctl(kcov_fd, KCOV_DISABLE, 0))
-            perror("ioctl"), exit(1);
-
-
-
-        attrs = kvm_arch_post_run(cpu, run);
-
-#ifdef KVM_HAVE_MCE_INJECTION
-        if (unlikely(have_sigbus_pending)) {
-            qemu_mutex_lock_iothread();
-            kvm_arch_on_sigbus_vcpu(cpu, pending_sigbus_code,
-                                    pending_sigbus_addr);
-            have_sigbus_pending = false;
-            qemu_mutex_unlock_iothread();
-        }
-#endif
-
-        if (run_ret < 0) {
-            if (run_ret == -EINTR || run_ret == -EAGAIN) {
-                DPRINTF("io window exit\n");
-                kvm_eat_signals(cpu);
-                ret = EXCP_INTERRUPT;
-                break;
-            }
-            fprintf(stderr, "error: kvm run failed %s\n",
-                    strerror(-run_ret));
-#ifdef TARGET_PPC
-            if (run_ret == -EBUSY) {
-                fprintf(stderr,
-                        "This is probably because your SMT is enabled.\n"
-                        "VCPU can only run on primary threads with all "
-                        "secondary threads offline.\n");
-            }
-#endif
-            ret = -1;
-            break;
-        }
-
-        trace_kvm_run_exit(cpu->cpu_index, run->exit_reason);
-        switch (run->exit_reason) {
-        case KVM_EXIT_IO:
-            DPRINTF("handle_io\n");
-            /* Called outside BQL */
-            kvm_handle_io(run->io.port, attrs,
-                          (uint8_t *)run + run->io.data_offset,
-                          run->io.direction,
-                          run->io.size,
-                          run->io.count);
-            ret = 0;
-            break;
-        case KVM_EXIT_MMIO:
-            DPRINTF("handle_mmio\n");
-            /* Called outside BQL */
-            address_space_rw(&address_space_memory,
-                             run->mmio.phys_addr, attrs,
-                             run->mmio.data,
-                             run->mmio.len,
-                             run->mmio.is_write);
-            ret = 0;
-            break;
-        case KVM_EXIT_IRQ_WINDOW_OPEN:
-            DPRINTF("irq_window_open\n");
-            ret = EXCP_INTERRUPT;
-            break;
-        case KVM_EXIT_SHUTDOWN:
-            DPRINTF("shutdown\n");
-            qemu_system_reset_request(SHUTDOWN_CAUSE_GUEST_RESET);
-            ret = EXCP_INTERRUPT;
-            break;
-        case KVM_EXIT_UNKNOWN:
-            fprintf(stderr, "KVM: unknown exit, hardware reason %" PRIx64 "\n",
-                    (uint64_t)run->hw.hardware_exit_reason);
-            ret = -1;
-            break;
-        case KVM_EXIT_INTERNAL_ERROR:
-            ret = kvm_handle_internal_error(cpu, run);
-            break;
-        case KVM_EXIT_DIRTY_RING_FULL:
-            /*
-             * We shouldn't continue if the dirty ring of this vcpu is
-             * still full.  Got kicked by KVM_RESET_DIRTY_RINGS.
-             */
-            trace_kvm_dirty_ring_full(cpu->cpu_index);
-            qemu_mutex_lock_iothread();
-            kvm_dirty_ring_reap(kvm_state);
-            qemu_mutex_unlock_iothread();
-            ret = 0;
-            break;
-        case KVM_EXIT_SYSTEM_EVENT:
-            switch (run->system_event.type) {
-            case KVM_SYSTEM_EVENT_SHUTDOWN:
-                qemu_system_shutdown_request(SHUTDOWN_CAUSE_GUEST_SHUTDOWN);
-                ret = EXCP_INTERRUPT;
-                break;
-            case KVM_SYSTEM_EVENT_RESET:
-                qemu_system_reset_request(SHUTDOWN_CAUSE_GUEST_RESET);
-                ret = EXCP_INTERRUPT;
-                break;
-            case KVM_SYSTEM_EVENT_CRASH:
-                kvm_cpu_synchronize_state(cpu);
-                qemu_mutex_lock_iothread();
-                qemu_system_guest_panicked(cpu_get_crash_info(cpu));
-                qemu_mutex_unlock_iothread();
-                ret = 0;
-                break;
-            default:
-                DPRINTF("kvm_arch_handle_exit\n");
-                ret = kvm_arch_handle_exit(cpu, run);
-                break;
-            }
-            break;
-        default:
-            DPRINTF("kvm_arch_handle_exit\n");
-            ret = kvm_arch_handle_exit(cpu, run);
-            break;
-        }
-    } while (ret == 0);
-    FILE * kvm_intel_bitmap = fopen("/home/ishii/nestedFuzz/VMXbench/kvm_intel_bitmap", "wb");
-    if (kvm_intel_bitmap == NULL)
-        perror("fopen"), exit(1);
-    fwrite(bitmap,sizeof(uint8_t),65536,kvm_intel_bitmap);
-    fclose(kvm_intel_bitmap);
-    if (fclose(kvm_intel_coverage_file) == EOF)
-        perror("fclose"), exit(1);
-    if (fclose(kvm_coverage_file) == EOF)
-        perror("fclose"), exit(1);
-    if (wflag != 0 ){
-        FILE * total_cov_file = fopen("total_coverage","w");
-        fwrite(total_coverage,sizeof(uint8_t),0x60000,total_cov_file);
-        fclose(total_cov_file);
-        
-        struct tm tm;
-        time_t t = time(NULL);
-        localtime_r(&t, &tm);
-        char f_name[100];
-        sprintf(f_name,"record/newcov_%02d_%02d_%02d_%02d_%02d",tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
-        FILE * record = fopen(f_name,"w");
-        fwrite(total_coverage,sizeof(uint8_t),0x60000,record);
-        fclose(record);
-    }
-    cpu_exec_end(cpu);
-    qemu_mutex_lock_iothread();
-
-    if (ret < 0) {
-        cpu_dump_state(cpu, stderr, CPU_DUMP_CODE);
-        vm_stop(RUN_STATE_INTERNAL_ERROR);
-    }
-
-    qatomic_set(&cpu->exit_request, 0);
-    return ret;
 }
 
 int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
@@ -3292,41 +3471,24 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
     // memcpy(afl_area_ptr,bitmap_back,65536);
     close(bitmap_fd);
 
-    FILE * total_cov_file;
-    int n;
-    if ((total_cov_file = fopen("total_kvm_intel_coverage","rb")) != NULL){
-        memset(total_coverage, 0, sizeof(total_coverage));
-        n = fread(total_coverage, sizeof(uint8_t), 0x60000, total_cov_file);
-        if (n) {
-            fclose(total_cov_file);
-        }
-        else {
-            perror("fread error");
-        }
-    }
-    FILE * kvm_cov_file;
-    if ((kvm_cov_file = fopen("total_kvm_coverage","rb")) != NULL){
-        memset(kvm_coverage, 0, sizeof(total_coverage));
-        n = fread(kvm_coverage, sizeof(uint8_t), 0xae000, kvm_cov_file);
-        if (n) {
-            fclose(kvm_cov_file);
-        }
-        else {
-            perror("fread error");
-        }
-    }
+
 
     // uint8_t *bitmap = afl_area_ptr
     struct kvm_run *run = cpu->kvm_run;
     int ret, run_ret;
-    unsigned long kcov_n;
+    // unsigned long kcov_n;
     // int count = 0;
     int cov;
     uint16_t cur_location, prev_location;
-    int wflag = 0;
-    int kflag = 0;
+    // int wflag = 0;
+    // int kflag = 0;
     prev_location = 0;
     DPRINTF("kvm_cpu_exec()\n");
+        /* Enable coverage collection on the current thread. */
+        // if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
+        //     perror("ioctl"), exit(1);
+        // /* Reset coverage from the tail of the ioctl() call. */
+        // __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
     // kvm_intel_coverage_file = fopen("/home/ishii/nestedFuzz/VMXbench/kvm_intel_coverage", "a");
     // if (kvm_intel_coverage_file == NULL)
     //     perror("fopen"), exit(1);
@@ -3363,23 +3525,27 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
          * Matching barrier in kvm_eat_signals.
          */
         smp_rmb();
-        __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
-        /* Enable coverage collection on the current thread. */
-        if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
-            perror("ioctl"), exit(1);
-        /* Reset coverage from the tail of the ioctl() call. */
-        __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
 
 
-        run_ret = kvm_vcpu_ioctl(cpu, KVM_RUN, 0);
+        // if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
+        //     perror("ioctl"), exit(1);
+        // /* Reset coverage from the tail of the ioctl() call. */
+        // __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
+        run_ret = kcov_kvm_vcpu_ioctl(cpu, KVM_RUN, 0);
 
 
-        kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
+        // kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
+        // /* Disable coverage collection for the current thread. After this call
+        // * coverage can be enabled for a different thread.
+        // */
+        // if (ioctl(kcov_fd, KCOV_DISABLE, 0))
+        //     perror("ioctl"), exit(1);
+        // printf("hello %ld\n",kcov_n);
         prev_location++;
         // count = 0;
         for (int i = 0; i < kcov_n; i++) {
             cov = (int)(kcov_cover[i+1]-kvm_intel_base);
-            if (cov >= 0 && cov < 0x59797 + 0xa0){
+            if (cov >= 0 && cov < MAX_KVM_INTEL){
                 cur_location = hash_int_to_16b(cov);
                 // if(afl_area_ptr[(cur_location ^ prev_location)] != 255){
                 if(afl_area_ptr[(cur_location)] != 255){
@@ -3398,7 +3564,7 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
                 }
             } else {
                 cov = (int)(kcov_cover[i+1]-kvm_base);
-                if (cov >= 0 && cov < 0xadf49 + 0xa0){
+                if (cov >= 0 && cov < MAX_KVM){
                     cur_location = hash_int_to_16b(0xfff00000 | cov);
                     if(afl_area_ptr[(cur_location)] != 255){
                         // afl_area_ptr[(cur_location ^ prev_location)]++;
@@ -3416,11 +3582,7 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
         // msync(afl_area_ptr,65536,MS_ASYNC|MS_SYNC);
         
 
-        /* Disable coverage collection for the current thread. After this call
-        * coverage can be enabled for a different thread.
-        */
-        if (ioctl(kcov_fd, KCOV_DISABLE, 0))
-            perror("ioctl"), exit(1);
+
 
 
 
@@ -3536,11 +3698,17 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
             break;
         }
     } while (ret == 0);
+        // /* Disable coverage collection for the current thread. After this call
+        // * coverage can be enabled for a different thread.
+        // */
+        // if (ioctl(kcov_fd, KCOV_DISABLE, 0))
+        //     perror("ioctl"), exit(1);
     // FILE * kvm_intel_bitmap = fopen("/home/ishii/nestedFuzz/VMXbench/shm_kvm_intel_bitmap", "wb");
     // if (kvm_intel_bitmap == NULL)
     //     perror("fopen"), exit(1);
     // fwrite(afl_area_ptr,sizeof(uint8_t),65536,kvm_intel_bitmap);
     // fclose(kvm_intel_bitmap);
+    // printf("world \n");
     munmap(afl_area_ptr,65536);
     // if (fclose(kvm_intel_coverage_file) == EOF)
     //     perror("fclose"), exit(1);
@@ -3548,7 +3716,7 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
     //     perror("fclose"), exit(1);
     if (wflag != 0 ){
         FILE * total_cov_file = fopen("total_kvm_intel_coverage","w");
-        fwrite(total_coverage,sizeof(uint8_t),0x60000,total_cov_file);
+        fwrite(total_coverage,sizeof(uint8_t),MAX_KVM_INTEL,total_cov_file);
         fclose(total_cov_file);
         
         // time_t型は基準年からの秒数
@@ -3563,12 +3731,12 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
         sprintf(f_name,"record/n_intel_%02d_%02d_%02d_%02d_%02d_%06ld",tm->tm_mon+1, tm->tm_mday,\
          tm->tm_hour, tm->tm_min, tm->tm_sec,tv.tv_usec);
         FILE * record = fopen(f_name,"w");
-        fwrite(total_coverage,sizeof(uint8_t),0x60000,record);
+        fwrite(total_coverage,sizeof(uint8_t),MAX_KVM_INTEL,record);
         fclose(record);
     }
     if (kflag != 0 ){
         FILE * total_cov_file = fopen("total_kvm_coverage","w");
-        fwrite(kvm_coverage,sizeof(uint8_t),0xae000,total_cov_file);
+        fwrite(kvm_coverage,sizeof(uint8_t),MAX_KVM,total_cov_file);
         fclose(total_cov_file);
         
         // time_t型は基準年からの秒数
@@ -3583,7 +3751,7 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
         sprintf(f_name,"record/n_kvm_%02d_%02d_%02d_%02d_%02d_%06ld",tm->tm_mon+1, tm->tm_mday,\
          tm->tm_hour, tm->tm_min, tm->tm_sec,tv.tv_usec);
         FILE * record = fopen(f_name,"w");
-        fwrite(kvm_coverage,sizeof(uint8_t),0xae000,record);
+        fwrite(kvm_coverage,sizeof(uint8_t),MAX_KVM,record);
         fclose(record);
     }
     cpu_exec_end(cpu);
@@ -3616,6 +3784,34 @@ int kvm_ioctl(KVMState *s, int type, ...)
     return ret;
 }
 
+int kcov_kvm_ioctl(KVMState *s, int type, ...)
+{
+    int ret;
+    void *arg;
+    va_list ap;
+
+    va_start(ap, type);
+    arg = va_arg(ap, void *);
+    va_end(ap);
+
+    trace_kvm_ioctl(type, arg);
+    if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
+        perror("ioctl"), exit(1);
+    /* Reset coverage from the tail of the ioctl() call. */
+    __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
+    ret = ioctl(s->fd, type, arg);
+    kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
+    /* Disable coverage collection for the current thread. After this call
+    * coverage can be enabled for a different thread.
+    */
+    if (ioctl(kcov_fd, KCOV_DISABLE, 0))
+        perror("ioctl"), exit(1);
+    if (ret == -1) {
+        ret = -errno;
+    }
+    return ret;
+}
+
 int kvm_vm_ioctl(KVMState *s, int type, ...)
 {
     int ret;
@@ -3634,6 +3830,34 @@ int kvm_vm_ioctl(KVMState *s, int type, ...)
     return ret;
 }
 
+int kcov_kvm_vm_ioctl(KVMState *s, int type, ...)
+{
+    int ret;
+    void *arg;
+    va_list ap;
+
+    va_start(ap, type);
+    arg = va_arg(ap, void *);
+    va_end(ap);
+
+    trace_kvm_vm_ioctl(type, arg);
+    if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
+        perror("ioctl"), exit(1);
+    /* Reset coverage from the tail of the ioctl() call. */
+    __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
+    ret = ioctl(s->vmfd, type, arg);
+    kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
+    /* Disable coverage collection for the current thread. After this call
+    * coverage can be enabled for a different thread.
+    */
+    if (ioctl(kcov_fd, KCOV_DISABLE, 0))
+        perror("ioctl"), exit(1);
+    if (ret == -1) {
+        ret = -errno;
+    }
+    return ret;
+}
+
 int kvm_vcpu_ioctl(CPUState *cpu, int type, ...)
 {
     int ret;
@@ -3646,6 +3870,36 @@ int kvm_vcpu_ioctl(CPUState *cpu, int type, ...)
 
     trace_kvm_vcpu_ioctl(cpu->cpu_index, type, arg);
     ret = ioctl(cpu->kvm_fd, type, arg);
+    if (ret == -1) {
+        ret = -errno;
+    }
+    return ret;
+}
+
+int kcov_kvm_vcpu_ioctl(CPUState *cpu, int type, ...)
+{
+    int ret;
+    void *arg;
+    va_list ap;
+
+    va_start(ap, type);
+    arg = va_arg(ap, void *);
+    va_end(ap);
+
+    trace_kvm_vcpu_ioctl(cpu->cpu_index, type, arg);
+    if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
+        perror("ioctl"), exit(1);
+    /* Reset coverage from the tail of the ioctl() call. */
+    __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
+    
+    ret = ioctl(cpu->kvm_fd, type, arg);
+
+    kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
+    /* Disable coverage collection for the current thread. After this call
+    * coverage can be enabled for a different thread.
+    */
+    if (ioctl(kcov_fd, KCOV_DISABLE, 0))
+        perror("ioctl"), exit(1);
     if (ret == -1) {
         ret = -errno;
     }
@@ -3954,6 +4208,21 @@ void kvm_remove_all_breakpoints(CPUState *cpu)
 }
 #endif /* !KVM_CAP_SET_GUEST_DEBUG */
 
+// static int kvm_set_signal_mask(CPUState *cpu, const sigset_t *sigset)
+// {
+//     KVMState *s = kvm_state;
+//     struct kvm_signal_mask *sigmask;
+//     int r;
+
+//     sigmask = g_malloc(sizeof(*sigmask) + sizeof(*sigset));
+
+//     sigmask->len = s->sigmask_len;
+//     memcpy(sigmask->sigset, sigset, sizeof(*sigset));
+//     r = kvm_vcpu_ioctl(cpu, KVM_SET_SIGNAL_MASK, sigmask);
+//     g_free(sigmask);
+
+//     return r;
+// }
 static int kvm_set_signal_mask(CPUState *cpu, const sigset_t *sigset)
 {
     KVMState *s = kvm_state;
@@ -3966,7 +4235,7 @@ static int kvm_set_signal_mask(CPUState *cpu, const sigset_t *sigset)
     memcpy(sigmask->sigset, sigset, sizeof(*sigset));
     r = kvm_vcpu_ioctl(cpu, KVM_SET_SIGNAL_MASK, sigmask);
     g_free(sigmask);
-
+    
     return r;
 }
 
