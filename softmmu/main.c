@@ -88,18 +88,19 @@ int qemu_main(int argc, char **argv, char **envp)
     kcov_fd = open("/sys/kernel/debug/kcov", O_RDWR);
     if (kcov_fd == -1)
         perror("open"), exit(1);
+    /* Setup trace mode and trace size. */
+    if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE))
+        perror("ioctl"), exit(1);
     FILE * total_cov_file;
     // int n;
-    printf("hello  PROT_READ | PROT_WRITE, MAP_SHARED %d, %d\n", PROT_READ | PROT_WRITE, MAP_SHARED);
-    printf("hello  kcov_fd %d\n", kcov_fd);
-    printf("hello  COVER_SIZE %d\n", COVER_SIZE);
+
         /* Mmap buffer shared between kernel- and user-space. */
     kcov_cover = (unsigned long *)mmap(NULL, COVER_SIZE * sizeof(unsigned long),PROT_READ | PROT_WRITE, MAP_SHARED, kcov_fd, 0);
     // printf("hello  COVER_SIZE %p\n", kcov_cover);
     if ((void *)kcov_cover == MAP_FAILED)
         perror("mmap"), exit(1);
 
-    if ((total_cov_file = fopen("total_kvm_intel_coverage","rb")) != NULL){
+    if ((total_cov_file = fopen("/home/ishii/nestedFuzz/VMXbench/total_kvm_intel_coverage","rb")) != NULL){
         // memset(total_coverage, 0, sizeof(total_coverage));
         int n = fread(total_coverage, sizeof(uint8_t), MAX_KVM_INTEL, total_cov_file);
         if (n) {
@@ -110,7 +111,7 @@ int qemu_main(int argc, char **argv, char **envp)
         }
     }
     FILE * kvm_cov_file;
-    if ((kvm_cov_file = fopen("total_kvm_coverage","rb")) != NULL){
+    if ((kvm_cov_file = fopen("/home/ishii/nestedFuzz/VMXbench/total_kvm_coverage","rb")) != NULL){
         // memset(kvm_coverage, 0, sizeof(total_coverage));
         int n = fread(kvm_coverage, sizeof(uint8_t), MAX_KVM, kvm_cov_file);
         if (n) {
@@ -120,11 +121,15 @@ int qemu_main(int argc, char **argv, char **envp)
             perror("fread error");
         }
     }
+    pid_t pid = getpid();
+    FILE *f_pid;
+    if ((f_pid = fopen("/home/ishii/nestedFuzz/VMXbench/qemu_pid","w")) != NULL){
+        // memset(kvm_coverage, 0, sizeof(total_coverage));
+        // int n = fread(kvm_coverage, sizeof(uint8_t), MAX_KVM, kvm_cov_file);
+        fprintf(f_pid,"%d", pid);
+        fclose(f_pid);
 
-    /* Setup trace mode and trace size. */
-    if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE))
-        perror("ioctl"), exit(1);
-    printf("hello\n");
+    }
     qemu_init(argc, argv, envp);
     qemu_main_loop();
     qemu_cleanup();
