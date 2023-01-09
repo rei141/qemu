@@ -3697,23 +3697,6 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
             ret = kvm_arch_handle_exit(cpu, run);
             break;
         }
-    } while (ret == 0);
-        // /* Disable coverage collection for the current thread. After this call
-        // * coverage can be enabled for a different thread.
-        // */
-        // if (ioctl(kcov_fd, KCOV_DISABLE, 0))
-        //     perror("ioctl"), exit(1);
-    // FILE * kvm_intel_bitmap = fopen("/home/ishii/nestedFuzz/VMXbench/shm_kvm_intel_bitmap", "wb");
-    // if (kvm_intel_bitmap == NULL)
-    //     perror("fopen"), exit(1);
-    // fwrite(afl_area_ptr,sizeof(uint8_t),65536,kvm_intel_bitmap);
-    // fclose(kvm_intel_bitmap);
-    // printf("world \n");
-    munmap(afl_area_ptr,65536);
-    // if (fclose(kvm_intel_coverage_file) == EOF)
-    //     perror("fclose"), exit(1);
-    // if (fclose(kvm_coverage_file) == EOF)
-    //     perror("fclose"), exit(1);
     if (wflag != 0 ){
         FILE * total_cov_file = fopen("/home/ishii/nestedFuzz/VMXbench/total_kvm_intel_coverage","w");
         fwrite(total_coverage,sizeof(uint8_t),MAX_KVM_INTEL,total_cov_file);
@@ -3756,6 +3739,24 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
         fclose(record);
         kflag=0;
     }
+    } while (ret == 0);
+        // /* Disable coverage collection for the current thread. After this call
+        // * coverage can be enabled for a different thread.
+        // */
+        // if (ioctl(kcov_fd, KCOV_DISABLE, 0))
+        //     perror("ioctl"), exit(1);
+    // FILE * kvm_intel_bitmap = fopen("/home/ishii/nestedFuzz/VMXbench/shm_kvm_intel_bitmap", "wb");
+    // if (kvm_intel_bitmap == NULL)
+    //     perror("fopen"), exit(1);
+    // fwrite(afl_area_ptr,sizeof(uint8_t),65536,kvm_intel_bitmap);
+    // fclose(kvm_intel_bitmap);
+    // printf("world \n");
+    munmap(afl_area_ptr,65536);
+    // if (fclose(kvm_intel_coverage_file) == EOF)
+    //     perror("fclose"), exit(1);
+    // if (fclose(kvm_coverage_file) == EOF)
+    //     perror("fclose"), exit(1);
+
     cpu_exec_end(cpu);
     qemu_mutex_lock_iothread();
 
