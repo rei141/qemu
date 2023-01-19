@@ -376,13 +376,15 @@ static int kvm_set_user_memory_region(KVMMemoryListener *kml, KVMSlot *slot, boo
         /* Set the slot size to 0 before setting the slot to the desired
          * value. This is needed based on KVM commit 75d61fbc. */
         mem.memory_size = 0;
-        ret = kvm_vm_ioctl(s, KVM_SET_USER_MEMORY_REGION, &mem);
+        ret = kcov_kvm_vm_ioctl(s, KVM_SET_USER_MEMORY_REGION, &mem);
+        // ret = kvm_vm_ioctl(s, KVM_SET_USER_MEMORY_REGION, &mem);
         if (ret < 0) {
             goto err;
         }
     }
     mem.memory_size = slot->memory_size;
-    ret = kvm_vm_ioctl(s, KVM_SET_USER_MEMORY_REGION, &mem);
+    ret = kcov_kvm_vm_ioctl(s, KVM_SET_USER_MEMORY_REGION, &mem);
+    // ret = kvm_vm_ioctl(s, KVM_SET_USER_MEMORY_REGION, &mem);
     slot->old_flags = mem.flags;
 err:
     trace_kvm_set_user_memory(mem.slot, mem.flags, mem.guest_phys_addr,
@@ -688,7 +690,8 @@ static bool kvm_slot_get_dirty_log(KVMState *s, KVMSlot *slot)
 
     d.dirty_bitmap = slot->dirty_bmap;
     d.slot = slot->slot | (slot->as_id << 16);
-    ret = kvm_vm_ioctl(s, KVM_GET_DIRTY_LOG, &d);
+    ret = kcov_kvm_vm_ioctl(s, KVM_GET_DIRTY_LOG, &d);
+    // ret = kvm_vm_ioctl(s, KVM_GET_DIRTY_LOG, &d);
 
     if (ret == -ENOENT) {
         /* kernel does not have dirty bitmap in this slot */
@@ -779,7 +782,8 @@ static uint64_t kvm_dirty_ring_reap_locked(KVMState *s)
     }
 
     if (total) {
-        ret = kvm_vm_ioctl(s, KVM_RESET_DIRTY_RINGS);
+        ret = kcov_kvm_vm_ioctl(s, KVM_RESET_DIRTY_RINGS);
+        // ret = kvm_vm_ioctl(s, KVM_RESET_DIRTY_RINGS);
         assert(ret == total);
     }
 
@@ -990,7 +994,8 @@ static int kvm_log_clear_one_slot(KVMSlot *mem, int as_id, uint64_t start,
     d.num_pages = bmap_npages;
     d.slot = mem->slot | (as_id << 16);
 
-    ret = kvm_vm_ioctl(s, KVM_CLEAR_DIRTY_LOG, &d);
+    ret = kcov_kvm_vm_ioctl(s, KVM_CLEAR_DIRTY_LOG, &d);
+    // ret = kvm_vm_ioctl(s, KVM_CLEAR_DIRTY_LOG, &d);
     if (ret < 0 && ret != -ENOENT) {
         error_report("%s: KVM_CLEAR_DIRTY_LOG failed, slot=%d, "
                      "start=0x%"PRIx64", size=0x%"PRIx32", errno=%d",
@@ -1090,7 +1095,8 @@ static void kvm_coalesce_mmio_region(MemoryListener *listener,
         zone.size = size;
         zone.pad = 0;
 
-        (void)kvm_vm_ioctl(s, KVM_REGISTER_COALESCED_MMIO, &zone);
+        (void)kcov_kvm_vm_ioctl(s, KVM_REGISTER_COALESCED_MMIO, &zone);
+        // (void)kvm_vm_ioctl(s, KVM_REGISTER_COALESCED_MMIO, &zone);
     }
 }
 
@@ -1107,7 +1113,8 @@ static void kvm_uncoalesce_mmio_region(MemoryListener *listener,
         zone.size = size;
         zone.pad = 0;
 
-        (void)kvm_vm_ioctl(s, KVM_UNREGISTER_COALESCED_MMIO, &zone);
+        (void)kcov_kvm_vm_ioctl(s, KVM_UNREGISTER_COALESCED_MMIO, &zone);
+        // (void)kvm_vm_ioctl(s, KVM_UNREGISTER_COALESCED_MMIO, &zone);
     }
 }
 
@@ -1124,7 +1131,8 @@ static void kvm_coalesce_pio_add(MemoryListener *listener,
         zone.size = size;
         zone.pio = 1;
 
-        (void)kvm_vm_ioctl(s, KVM_REGISTER_COALESCED_MMIO, &zone);
+        (void)kcov_kvm_vm_ioctl(s, KVM_REGISTER_COALESCED_MMIO, &zone);
+        // (void)kvm_vm_ioctl(s, KVM_REGISTER_COALESCED_MMIO, &zone);
     }
 }
 
@@ -1141,7 +1149,8 @@ static void kvm_coalesce_pio_del(MemoryListener *listener,
         zone.size = size;
         zone.pio = 1;
 
-        (void)kvm_vm_ioctl(s, KVM_UNREGISTER_COALESCED_MMIO, &zone);
+        (void)kcov_kvm_vm_ioctl(s, KVM_UNREGISTER_COALESCED_MMIO, &zone);
+        // (void)kvm_vm_ioctl(s, KVM_UNREGISTER_COALESCED_MMIO, &zone);
      }
 }
 
@@ -1168,7 +1177,8 @@ int kvm_vm_check_extension(KVMState *s, unsigned int extension)
 {
     int ret;
 
-    ret = kvm_vm_ioctl(s, KVM_CHECK_EXTENSION, extension);
+    ret = kcov_kvm_vm_ioctl(s, KVM_CHECK_EXTENSION, extension);
+    // ret = kvm_vm_ioctl(s, KVM_CHECK_EXTENSION, extension);
     if (ret < 0) {
         /* VM wide version not implemented, use global one instead */
         ret = kvm_check_extension(s, extension);
@@ -1255,7 +1265,8 @@ static int kvm_set_ioeventfd_mmio(int fd, hwaddr addr, uint32_t val,
         iofd.flags |= KVM_IOEVENTFD_FLAG_DEASSIGN;
     }
 
-    ret = kvm_vm_ioctl(kvm_state, KVM_IOEVENTFD, &iofd);
+    ret = kcov_kvm_vm_ioctl(kvm_state, KVM_IOEVENTFD, &iofd);
+    // ret = kvm_vm_ioctl(kvm_state, KVM_IOEVENTFD, &iofd);
 
     if (ret < 0) {
         return -errno;
@@ -1285,7 +1296,8 @@ static int kvm_set_ioeventfd_pio(int fd, uint16_t addr, uint16_t val,
     if (!assign) {
         kick.flags |= KVM_IOEVENTFD_FLAG_DEASSIGN;
     }
-    r = kvm_vm_ioctl(kvm_state, KVM_IOEVENTFD, &kick);
+    r = kcov_kvm_vm_ioctl(kvm_state, KVM_IOEVENTFD, &kick);
+    // r = kvm_vm_ioctl(kvm_state, KVM_IOEVENTFD, &kick);
     if (r < 0) {
         return r;
     }
@@ -1704,6 +1716,7 @@ int kvm_set_irq(KVMState *s, int irq, int level)
 
     event.level = level;
     event.irq = irq;
+    // ret = kcov_kvm_vm_ioctl(s, s->irq_set_ioctl, &event);
     ret = kvm_vm_ioctl(s, s->irq_set_ioctl, &event);
     if (ret < 0) {
         perror("kvm_set_irq");
@@ -1766,7 +1779,8 @@ void kvm_irqchip_commit_routes(KVMState *s)
 
     s->irq_routes->flags = 0;
     trace_kvm_irqchip_commit_routes();
-    ret = kvm_vm_ioctl(s, KVM_SET_GSI_ROUTING, s->irq_routes);
+    ret = kcov_kvm_vm_ioctl(s, KVM_SET_GSI_ROUTING, s->irq_routes);
+    // ret = kvm_vm_ioctl(s, KVM_SET_GSI_ROUTING, s->irq_routes);
     assert(ret == 0);
 }
 
@@ -1939,7 +1953,8 @@ int kvm_irqchip_send_msi(KVMState *s, MSIMessage msg)
         msi.flags = 0;
         memset(msi.pad, 0, sizeof(msi.pad));
 
-        return kvm_vm_ioctl(s, KVM_SIGNAL_MSI, &msi);
+        return kcov_kvm_vm_ioctl(s, KVM_SIGNAL_MSI, &msi);
+        // return kvm_vm_ioctl(s, KVM_SIGNAL_MSI, &msi);
     }
 
     route = kvm_lookup_msi_route(s, msg);
@@ -2099,7 +2114,8 @@ static int kvm_irqchip_assign_irqfd(KVMState *s, EventNotifier *event,
         return -ENOSYS;
     }
 
-    return kvm_vm_ioctl(s, KVM_IRQFD, &irqfd);
+    return kcov_kvm_vm_ioctl(s, KVM_IRQFD, &irqfd);
+    // return kvm_vm_ioctl(s, KVM_IRQFD, &irqfd);
 }
 
 int kvm_irqchip_add_adapter_route(KVMState *s, AdapterInfo *adapter)
@@ -2267,7 +2283,8 @@ static void kvm_irqchip_create(KVMState *s)
             perror("Split IRQ chip mode not supported.");
             exit(1);
         } else {
-            ret = kvm_vm_ioctl(s, KVM_CREATE_IRQCHIP);
+            ret = kcov_kvm_vm_ioctl(s, KVM_CREATE_IRQCHIP);
+            // ret = kvm_vm_ioctl(s, KVM_CREATE_IRQCHIP);
         }
     }
     if (ret < 0) {
@@ -3444,7 +3461,8 @@ int kvm_cpu_exec(CPUState *cpu)
 uint16_t hash_int_to_16b(int val) {
     return (val >> 16) ^ (val &0x0000ffff);
 }
-
+int count;
+int done_ioctl;
 int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
 {
     int bitmap_fd = shm_open("afl_bitmap", O_CREAT|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
@@ -3527,13 +3545,179 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
         smp_rmb();
 
 
+
+
         // if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
         //     perror("ioctl"), exit(1);
         // /* Reset coverage from the tail of the ioctl() call. */
         // __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
         run_ret = kcov_kvm_vcpu_ioctl(cpu, KVM_RUN, 0);
+        X86CPU *cpu1 = X86_CPU(cpu);
+        CPUX86State *env = &cpu1->env;
+
+    if(ivmshm[4003] == 1){
+            kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_NESTED_STATE, env->nested_state);
+        // printf("%llx\n",env->nested_state->hdr.vmx.vmcs12_pa);
+        if(0xffffffffffffffff!=env->nested_state->hdr.vmx.vmcs12_pa){
+
+        
+        if(done_ioctl == 0){
+        printf("***** ioctl fuzz *****\n");
+        done_ioctl = 1;
+        // printf("****** ivmshm[4001]=0\n");
+        // ****************************************
+        // struct kvm_vcpu_events {
+        // 	struct {
+        // 		__u8 injected;
+        // 		__u8 nr;
+        // 		__u8 has_error_code;
+        // 		__u8 pending;
+        // 		__u32 error_code;
+        // 	} exception;
+        // 	struct {
+        // 		__u8 injected;
+        // 		__u8 nr;
+        // 		__u8 soft;
+        // 		__u8 shadow;
+        // 	} interrupt;
+        // 	struct {
+        // 		__u8 injected;
+        // 		__u8 pending;
+        // 		__u8 masked;
+        // 		__u8 pad;
+        // 	} nmi;
+        // 	__u32 sipi_vector;
+        // 	__u32 flags;
+        // 	struct {
+        // 		__u8 smm;
+        // 		__u8 pending;
+        // 		__u8 smm_inside_nmi;
+        // 		__u8 latched_init;
+        // 	} smi;
+        // 	__u8 reserved[27];
+        // 	__u8 exception_has_payload;
+        // 	__u64 exception_payload;
+        // };
+        struct kvm_vcpu_events events;
+        printf("sizeod %ld\n", sizeof(struct kvm_vcpu_events));
+        kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_VCPU_EVENTS, &events);
+        // events.exception.injected = ivmshm[700] &0xf;
+        // events.exception.nr = ivmshm[700] >> 8;
+        // events.exception.has_error_code = ivmshm[701] &0xf;
+        // events.exception.error_code = ivmshm[703]<<16 | ivmshm[702];
+
+        // events.interrupt.injected = (env->interrupt_injected >= 0);
+        // events.interrupt.nr = env->interrupt_injected;
+        // events.interrupt.soft = env->soft_interrupt;
+        // events.interrupt.shadow = env->soft_interrupt;
+
+        // events.nmi.injected = env->nmi_injected;
+        // events.nmi.pending = env->nmi_pending;
+        // events.nmi.masked = !!(env->hflags2 & HF2_NMI_MASK);
+
+        // events.sipi_vector = env->sipi_vector;
+        kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_VCPU_EVENTS, &events);
+        kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_VCPU_EVENTS, &ivmshm[700]);
+    struct kvm_debugregs dbgregs;
+        printf("sizeod %ld\n", sizeof(struct kvm_debugregs));
+    kvm_vcpu_ioctl(CPU(cpu), KVM_GET_DEBUGREGS, &dbgregs);
+    kvm_vcpu_ioctl(CPU(cpu), KVM_SET_DEBUGREGS, &dbgregs);
+    kvm_vcpu_ioctl(CPU(cpu), KVM_SET_DEBUGREGS, &ivmshm[732]);
+
+        struct kvm_mp_state mp_state;
+        kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_MP_STATE, &mp_state);
+        kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_MP_STATE, &mp_state);
+    kvm_vcpu_ioctl(CPU(cpu), KVM_SET_MP_STATE, &ivmshm[796]);
+    struct kvm_xcrs xcrs = {};
+    xcrs.nr_xcrs = 1;
+    xcrs.flags = 0;
+    xcrs.xcrs[0].xcr = 0;
+    xcrs.xcrs[0].value = env->xcr0;
+    kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_XCRS, &ivmshm[860]);
+    kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_XCRS, &xcrs);
+        struct kvm_regs regs;
+        kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_REGS, &regs);
+        kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_REGS, &regs);
+        // kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_REGS, &ivmshm[800]);
+//         // type = has_xsave2 ? KVM_GET_XSAVE2 : KVM_GET_XSAVE;
+// kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_XSAVE, NULL);
+        struct kvm_sregs sregs;
+        kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_SREGS, &sregs);
+        kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_SREGS, &sregs);
+        // kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_SREGS, &ivmshm[870]);
+
+        kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_SREGS2, &sregs);
+        kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_SREGS2, &sregs);
+        // kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_SREGS2, &sregs);
+        struct {
+            struct kvm_msrs info;
+            struct kvm_msr_entry entries[1];
+        } msr_data;
+
+    kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_MSRS, &msr_data);
+    kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_MSRS, &msr_data);
+
+#define KVM_MAX_CPUID_ENTRIES  100
+
+        kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_GUEST_DEBUG,NULL);
+        struct kvm_interrupt intr;
+        intr.irq = 1;
+        kvm_vcpu_ioctl(CPU(cpu1), KVM_INTERRUPT, &intr);
+    // printf("%d\n",env->nested_state->size);
+            // printf("***** count %d\n",count);
+    printf("%d\n",env->nested_state->size);
+    printf("%llx\n",env->nested_state->hdr.vmx.vmcs12_pa);
+    if (env->nested_state&&(env->nested_state->size>=0x1000)&&(0xffffffffffffffff!=env->nested_state->hdr.vmx.vmcs12_pa)) {
+        count++;
+            // printf("***** count %d\n",count);
+        if(count%100 ==0){
+            printf("count %d\n",count);
+        }
+        struct {
+            struct kvm_cpuid2 cpuid;
+            struct kvm_cpuid_entry2 entries[KVM_MAX_CPUID_ENTRIES];
+        } cpuid_data;
+        cpuid_data.cpuid.padding = 0;
+        kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_CPUID2, &cpuid_data);
+
+        // printf("*****************%d\n",env->nested_state->size);
+        // printf("hdr.vmxon_pa 0x%llx\n",env->nested_state->hdr.vmx.vmxon_pa);
+        // printf("vmcs12_pa 0x%llx\n",env->nested_state->hdr.vmx.vmcs12_pa);
+            /*
+            * Copy flags that are affected by reset from env->hflags and env->hflags2.
+            */
+        int max_nested_state_len = kvm_max_nested_state_length();
+        if (env->hflags & HF_GUEST_MASK) {
+            env->nested_state->flags |= KVM_STATE_NESTED_GUEST_MODE;
+        } else {
+            env->nested_state->flags &= ~KVM_STATE_NESTED_GUEST_MODE;
+        }
+
+        /* Don't set KVM_STATE_NESTED_GIF_SET on VMX as it is illegal */
+        if (cpu_has_svm(env) && (env->hflags2 & HF2_GIF_MASK)) {
+            env->nested_state->flags |= KVM_STATE_NESTED_GIF_SET;
+        } else {
+            env->nested_state->flags &= ~KVM_STATE_NESTED_GIF_SET;
+        }
+        assert(env->nested_state->size <= max_nested_state_len);
+        // env->nested_state->flags |= 0x104;
+        // env->nested_state->hdr.vmx.vmcs12_pa=0xffffffffffffffff;
+        kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_NESTED_STATE, env->nested_state);
+    }
+    struct kvm_signal_mask sigmask;
+    kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_SIGNAL_MASK, &sigmask);
+    kvm_vcpu_enable_cap(CPU(cpu1),0,0);
+    }
+    }
+    }
+    else{
+        done_ioctl = 0;
+    }
 
 
+
+
+        // kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_NESTED_STATE, env->nested_state);
         // kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
         // /* Disable coverage collection for the current thread. After this call
         // * coverage can be enabled for a different thread.
@@ -3558,10 +3742,10 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
                 //     fprintf(kvm_intel_coverage_file,"0x%x\n",cov);
                 // }
                 // if (wflag != 1 && total_coverage[cov] == 0){
-                if (total_coverage[cov] == 0){
-                    total_coverage[cov] = 1;
-                    wflag = 1;
-                }
+                // if (total_coverage[cov] == 0){
+                //     total_coverage[cov] = 1;
+                //     wflag = 1;
+                // }
             } else {
                 cov = (int)(kcov_cover[i+1]-kvm_base);
                 if (cov >= 0 && cov < MAX_KVM){
@@ -3572,10 +3756,10 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
                         }
                     prev_location = cur_location >> 1;      
                     // if (kflag != 1 && kvm_coverage[cov] == 0){
-                    if (kvm_coverage[cov] == 0){
-                        kvm_coverage[cov] = 1;
-                        kflag = 1;
-                        } 
+                    // if (kvm_coverage[cov] == 0){
+                    //     kvm_coverage[cov] = 1;
+                    //     kflag = 1;
+                    //     } 
                     }
                 } 
             }
@@ -3769,6 +3953,23 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
     return ret;
 }
 
+// int kvm_ioctl(KVMState *s, int type, ...)
+// {
+//     int ret;
+//     void *arg;
+//     va_list ap;
+
+//     va_start(ap, type);
+//     arg = va_arg(ap, void *);
+//     va_end(ap);
+
+//     trace_kvm_ioctl(type, arg);
+//     ret = ioctl(s->fd, type, arg);
+//     if (ret == -1) {
+//         ret = -errno;
+//     }
+//     return ret;
+// }
 int kvm_ioctl(KVMState *s, int type, ...)
 {
     int ret;
@@ -3780,7 +3981,36 @@ int kvm_ioctl(KVMState *s, int type, ...)
     va_end(ap);
 
     trace_kvm_ioctl(type, arg);
+    if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
+        perror("ioctl"), exit(1);
+    /* Reset coverage from the tail of the ioctl() call. */
+    __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
     ret = ioctl(s->fd, type, arg);
+    kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
+    /* Disable coverage collection for the current thread. After this call
+    * coverage can be enabled for a different thread.
+    */
+    for (int i = 0; i < kcov_n; i++) {
+        int cov = (int)(kcov_cover[i+1]-kvm_intel_base);
+        if (cov >= 0 && cov < MAX_KVM_INTEL){
+            if (total_coverage[cov] == 0){
+                total_coverage[cov] = 1;
+                wflag = 1;
+            }
+        }
+        else {
+            cov = (int)(kcov_cover[i+1]-kvm_base);
+            if (cov >= 0 && cov < MAX_KVM){  
+                // if (kflag != 1 && kvm_coverage[cov] == 0){
+                if (kvm_coverage[cov] == 0){
+                    kvm_coverage[cov] = 1;
+                    kflag = 1;
+                } 
+            }
+        } 
+    }
+    if (ioctl(kcov_fd, KCOV_DISABLE, 0))
+        perror("ioctl"), exit(1);
     if (ret == -1) {
         ret = -errno;
     }
@@ -3899,6 +4129,23 @@ int kcov_kvm_vm_ioctl(KVMState *s, int type, ...)
     return ret;
 }
 
+// int kvm_vcpu_ioctl(CPUState *cpu, int type, ...)
+// {
+//     int ret;
+//     void *arg;
+//     va_list ap;
+
+//     va_start(ap, type);
+//     arg = va_arg(ap, void *);
+//     va_end(ap);
+
+//     trace_kvm_vcpu_ioctl(cpu->cpu_index, type, arg);
+//     ret = ioctl(cpu->kvm_fd, type, arg);
+//     if (ret == -1) {
+//         ret = -errno;
+//     }
+//     return ret;
+// }
 int kvm_vcpu_ioctl(CPUState *cpu, int type, ...)
 {
     int ret;
@@ -3910,7 +4157,38 @@ int kvm_vcpu_ioctl(CPUState *cpu, int type, ...)
     va_end(ap);
 
     trace_kvm_vcpu_ioctl(cpu->cpu_index, type, arg);
+    if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
+        perror("ioctl"), exit(1);
+    /* Reset coverage from the tail of the ioctl() call. */
+    __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
+    
     ret = ioctl(cpu->kvm_fd, type, arg);
+
+    kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
+    /* Disable coverage collection for the current thread. After this call
+    * coverage can be enabled for a different thread.
+    */
+    for (int i = 0; i < kcov_n; i++) {
+        int cov = (int)(kcov_cover[i+1]-kvm_intel_base);
+        if (cov >= 0 && cov < MAX_KVM_INTEL){
+            if (total_coverage[cov] == 0){
+                total_coverage[cov] = 1;
+                wflag = 1;
+            }
+        }
+        else {
+            cov = (int)(kcov_cover[i+1]-kvm_base);
+            if (cov >= 0 && cov < MAX_KVM){  
+                // if (kflag != 1 && kvm_coverage[cov] == 0){
+                if (kvm_coverage[cov] == 0){
+                    kvm_coverage[cov] = 1;
+                    kflag = 1;
+                } 
+            }
+        } 
+    }
+    if (ioctl(kcov_fd, KCOV_DISABLE, 0))
+        perror("ioctl"), exit(1);
     if (ret == -1) {
         ret = -errno;
     }
@@ -3939,6 +4217,25 @@ int kcov_kvm_vcpu_ioctl(CPUState *cpu, int type, ...)
     /* Disable coverage collection for the current thread. After this call
     * coverage can be enabled for a different thread.
     */
+    for (int i = 0; i < kcov_n; i++) {
+        int cov = (int)(kcov_cover[i+1]-kvm_intel_base);
+        if (cov >= 0 && cov < MAX_KVM_INTEL){
+            if (total_coverage[cov] == 0){
+                total_coverage[cov] = 1;
+                wflag = 1;
+            }
+        }
+        else {
+            cov = (int)(kcov_cover[i+1]-kvm_base);
+            if (cov >= 0 && cov < MAX_KVM){  
+                // if (kflag != 1 && kvm_coverage[cov] == 0){
+                if (kvm_coverage[cov] == 0){
+                    kvm_coverage[cov] = 1;
+                    kflag = 1;
+                } 
+            }
+        } 
+    }
     if (ioctl(kcov_fd, KCOV_DISABLE, 0))
         perror("ioctl"), exit(1);
     if (ret == -1) {
@@ -3977,7 +4274,8 @@ int kvm_vm_check_attr(KVMState *s, uint32_t group, uint64_t attr)
         return 0;
     }
 
-    ret = kvm_vm_ioctl(s, KVM_HAS_DEVICE_ATTR, &attribute);
+    ret = kcov_kvm_vm_ioctl(s, KVM_HAS_DEVICE_ATTR, &attribute);
+    // ret = kvm_vm_ioctl(s, KVM_HAS_DEVICE_ATTR, &attribute);
     /* kvm returns 0 on success for HAS_DEVICE_ATTR */
     return ret ? 0 : 1;
 }
@@ -4361,7 +4659,8 @@ int kvm_create_device(KVMState *s, uint64_t type, bool test)
         return -ENOTSUP;
     }
 
-    ret = kvm_vm_ioctl(s, KVM_CREATE_DEVICE, &create_dev);
+    ret = kcov_kvm_vm_ioctl(s, KVM_CREATE_DEVICE, &create_dev);
+    // ret = kvm_vm_ioctl(s, KVM_CREATE_DEVICE, &create_dev);
     if (ret) {
         return ret;
     }

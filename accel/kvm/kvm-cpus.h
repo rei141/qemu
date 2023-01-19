@@ -37,6 +37,7 @@ extern unsigned long kcov_n;
 extern unsigned long * kcov_cover;
 
 extern unsigned long kvm_intel_base;
+extern uint16_t * ivmshm;
 extern unsigned long kvm_base;
 extern int wflag;
 extern int kflag;

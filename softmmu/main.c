@@ -54,6 +54,7 @@ int kcov_fd;
 unsigned long * kcov_cover;
 uint8_t total_coverage[MAX_KVM_INTEL];
 uint8_t kvm_coverage[MAX_KVM];
+uint16_t * ivmshm;
 int qemu_main(int argc, char **argv, char **envp)
 {
     FILE * fkvm_intel = fopen("/sys/module/kvm_intel/sections/.text","r");
@@ -130,6 +131,17 @@ int qemu_main(int argc, char **argv, char **envp)
         fclose(f_pid);
 
     }
+    int fd = shm_open("ivshmem", O_CREAT|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
+
+    if (fd == -1)
+        perror("open"), exit(1);
+
+    ivmshm = (uint16_t *)mmap(NULL, 1024*1024,
+                                    PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if ((void *)ivmshm == MAP_FAILED)
+        perror("mmap"), exit(1);
+    ivmshm += 0x6;
+
     qemu_init(argc, argv, envp);
     qemu_main_loop();
     qemu_cleanup();
