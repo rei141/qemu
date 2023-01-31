@@ -3456,7 +3456,53 @@ int kvm_cpu_exec(CPUState *cpu)
 // uint8_t bitmap[65536];
 // FILE * kvm_intel_coverage_file;
 // FILE * kvm_coverage_file;
+#define MSR_BUF_SIZE 4096
+// static void kvm_msr_buf_reset(X86CPU *cpu)
+// {
+//     memset(cpu->kvm_msr_buf, 0, MSR_BUF_SIZE);
+// }
 
+// static void kvm_msr_entry_add(X86CPU *cpu, uint32_t index, uint64_t value)
+// {
+//     struct kvm_msrs *msrs = cpu->kvm_msr_buf;
+//     void *limit = ((void *)msrs) + MSR_BUF_SIZE;
+//     struct kvm_msr_entry *entry = &msrs->entries[msrs->nmsrs];
+
+//     assert((void *)(entry + 1) <= limit);
+
+//     entry->index = index;
+//     entry->reserved = 0;
+//     entry->data = value;
+//     msrs->nmsrs++;
+// }
+
+// static int kvm_put_one_msr(X86CPU *cpu, int index, uint64_t value)
+// {
+//     kvm_msr_buf_reset(cpu);
+//     kvm_msr_entry_add(cpu, index, value);
+
+//     return kvm_vcpu_ioctl(CPU(cpu), KVM_SET_MSRS, cpu->kvm_msr_buf);
+// }
+
+// static int kvm_get_one_msr(X86CPU *cpu, int index, uint64_t *value)
+// {
+//     int ret;
+//     struct {
+//         struct kvm_msrs info;
+//         struct kvm_msr_entry entries[1];
+//     } msr_data = {
+//         .info.nmsrs = 1,
+//         .entries[0].index = index,
+//     };
+
+//     ret = kvm_vcpu_ioctl(CPU(cpu), KVM_GET_MSRS, &msr_data);
+//     if (ret < 0) {
+//         return ret;
+//     }
+//     assert(ret == 1);
+//     *value = msr_data.entries[0].data;
+//     return ret;
+// }
 
 uint16_t hash_int_to_16b(int val) {
     return (val >> 16) ^ (val &0x0000ffff);
@@ -3517,7 +3563,18 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
         qatomic_set(&cpu->exit_request, 0);
         return EXCP_HLT;
     }
-
+        // X86CPU *cpu1 = X86_CPU(cpu);
+        // int ind=0x48b;
+        // ind = 0x40000073;
+        // uint64_t val=0;
+        // kvm_get_one_msr(cpu1,ind,&val);
+        // printf("******** 0x%lx *********\n",val);
+        // // val = val | (uint64_t)(1<<13)<<31;
+        // val = 1;
+        // int r1 = kvm_put_one_msr(cpu1,ind,val);
+        // kvm_get_one_msr(cpu1,ind,&val);
+        // printf("%d******** 0x%lx *********\n",r1,val);
+        // cpu = CPU(cpu1);
     qemu_mutex_unlock_iothread();
     cpu_exec_start(cpu);
     do {
@@ -3552,167 +3609,235 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
         // /* Reset coverage from the tail of the ioctl() call. */
         // __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
         run_ret = kcov_kvm_vcpu_ioctl(cpu, KVM_RUN, 0);
-        X86CPU *cpu1 = X86_CPU(cpu);
-        CPUX86State *env = &cpu1->env;
 
-    if(ivmshm[4003] == 1){
-            kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_NESTED_STATE, env->nested_state);
-        // printf("%llx\n",env->nested_state->hdr.vmx.vmcs12_pa);
-        if(0xffffffffffffffff!=env->nested_state->hdr.vmx.vmcs12_pa){
+//         CPUX86State *env = &cpu1->env;
+
+//     if(ivmshm[4003] == 1){
+//             kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_NESTED_STATE, env->nested_state);
+//         // printf("%llx\n",env->nested_state->hdr.vmx.vmcs12_pa);
+//         if(0xffffffffffffffff!=env->nested_state->hdr.vmx.vmcs12_pa){
 
         
-        if(done_ioctl == 0){
-        printf("***** ioctl fuzz *****\n");
-        done_ioctl = 1;
-        // printf("****** ivmshm[4001]=0\n");
-        // ****************************************
-        // struct kvm_vcpu_events {
-        // 	struct {
-        // 		__u8 injected;
-        // 		__u8 nr;
-        // 		__u8 has_error_code;
-        // 		__u8 pending;
-        // 		__u32 error_code;
-        // 	} exception;
-        // 	struct {
-        // 		__u8 injected;
-        // 		__u8 nr;
-        // 		__u8 soft;
-        // 		__u8 shadow;
-        // 	} interrupt;
-        // 	struct {
-        // 		__u8 injected;
-        // 		__u8 pending;
-        // 		__u8 masked;
-        // 		__u8 pad;
-        // 	} nmi;
-        // 	__u32 sipi_vector;
-        // 	__u32 flags;
-        // 	struct {
-        // 		__u8 smm;
-        // 		__u8 pending;
-        // 		__u8 smm_inside_nmi;
-        // 		__u8 latched_init;
-        // 	} smi;
-        // 	__u8 reserved[27];
-        // 	__u8 exception_has_payload;
-        // 	__u64 exception_payload;
-        // };
-        struct kvm_vcpu_events events;
-        printf("sizeod %ld\n", sizeof(struct kvm_vcpu_events));
-        kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_VCPU_EVENTS, &events);
-        // events.exception.injected = ivmshm[700] &0xf;
-        // events.exception.nr = ivmshm[700] >> 8;
-        // events.exception.has_error_code = ivmshm[701] &0xf;
-        // events.exception.error_code = ivmshm[703]<<16 | ivmshm[702];
+//         if(done_ioctl == 0){
+//         printf("***** ioctl fuzz *****\n");
+//         done_ioctl = 1;
+//         // printf("****** ivmshm[4001]=0\n");
+//         // ****************************************
+//         // struct kvm_vcpu_events {
+//         // 	struct {
+//         // 		__u8 injected;
+//         // 		__u8 nr;
+//         // 		__u8 has_error_code;
+//         // 		__u8 pending;
+//         // 		__u32 error_code;
+//         // 	} exception;
+//         // 	struct {
+//         // 		__u8 injected;
+//         // 		__u8 nr;
+//         // 		__u8 soft;
+//         // 		__u8 shadow;
+//         // 	} interrupt;
+//         // 	struct {
+//         // 		__u8 injected;
+//         // 		__u8 pending;
+//         // 		__u8 masked;
+//         // 		__u8 pad;
+//         // 	} nmi;
+//         // 	__u32 sipi_vector;
+//         // 	__u32 flags;
+//         // 	struct {
+//         // 		__u8 smm;
+//         // 		__u8 pending;
+//         // 		__u8 smm_inside_nmi;
+//         // 		__u8 latched_init;
+//         // 	} smi;
+//         // 	__u8 reserved[27];
+//         // 	__u8 exception_has_payload;
+//         // 	__u64 exception_payload;
+//         // };
+//         struct kvm_vcpu_events events;
+//         printf("sizeod %ld\n", sizeof(struct kvm_vcpu_events));
+//         // kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_VCPU_EVENTS, &events);
+//         // events.exception.injected = ivmshm[700] &0xf;
+//         // events.exception.nr = ivmshm[700] >> 8;
+//         // events.exception.has_error_code = ivmshm[701] &0xf;
+//         // events.exception.error_code = ivmshm[703]<<16 | ivmshm[702];
 
-        // events.interrupt.injected = (env->interrupt_injected >= 0);
-        // events.interrupt.nr = env->interrupt_injected;
-        // events.interrupt.soft = env->soft_interrupt;
-        // events.interrupt.shadow = env->soft_interrupt;
+//         // events.interrupt.injected = (env->interrupt_injected >= 0);
+//         // events.interrupt.nr = env->interrupt_injected;
+//         // events.interrupt.soft = env->soft_interrupt;
+//         // events.interrupt.shadow = env->soft_interrupt;
 
-        // events.nmi.injected = env->nmi_injected;
-        // events.nmi.pending = env->nmi_pending;
-        // events.nmi.masked = !!(env->hflags2 & HF2_NMI_MASK);
+//         // events.nmi.injected = env->nmi_injected;
+//         // events.nmi.pending = env->nmi_pending;
+//         // events.nmi.masked = !!(env->hflags2 & HF2_NMI_MASK);
 
-        // events.sipi_vector = env->sipi_vector;
-        kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_VCPU_EVENTS, &events);
-        kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_VCPU_EVENTS, &ivmshm[700]);
-    struct kvm_debugregs dbgregs;
-        printf("sizeod %ld\n", sizeof(struct kvm_debugregs));
-    kvm_vcpu_ioctl(CPU(cpu), KVM_GET_DEBUGREGS, &dbgregs);
-    kvm_vcpu_ioctl(CPU(cpu), KVM_SET_DEBUGREGS, &dbgregs);
-    kvm_vcpu_ioctl(CPU(cpu), KVM_SET_DEBUGREGS, &ivmshm[732]);
+//         // events.sipi_vector = env->sipi_vector;
+//         kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_VCPU_EVENTS, &events);
+//         kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_VCPU_EVENTS, &ivmshm[700]);
+//     struct kvm_debugregs dbgregs;
+//         printf("sizeod %ld\n", sizeof(struct kvm_debugregs));
+//     kvm_vcpu_ioctl(CPU(cpu), KVM_GET_DEBUGREGS, &dbgregs);
+//     kvm_vcpu_ioctl(CPU(cpu), KVM_SET_DEBUGREGS, &dbgregs);
+//     kvm_vcpu_ioctl(CPU(cpu), KVM_SET_DEBUGREGS, &ivmshm[732]);
 
-        struct kvm_mp_state mp_state;
-        kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_MP_STATE, &mp_state);
-        kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_MP_STATE, &mp_state);
-    kvm_vcpu_ioctl(CPU(cpu), KVM_SET_MP_STATE, &ivmshm[796]);
-    struct kvm_xcrs xcrs = {};
-    xcrs.nr_xcrs = 1;
-    xcrs.flags = 0;
-    xcrs.xcrs[0].xcr = 0;
-    xcrs.xcrs[0].value = env->xcr0;
-    kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_XCRS, &ivmshm[860]);
-    kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_XCRS, &xcrs);
-        struct kvm_regs regs;
-        kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_REGS, &regs);
-        kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_REGS, &regs);
-        // kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_REGS, &ivmshm[800]);
-//         // type = has_xsave2 ? KVM_GET_XSAVE2 : KVM_GET_XSAVE;
-// kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_XSAVE, NULL);
-        struct kvm_sregs sregs;
-        kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_SREGS, &sregs);
-        kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_SREGS, &sregs);
-        // kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_SREGS, &ivmshm[870]);
+//         struct kvm_mp_state mp_state;
+//         printf("sizeod %ld\n", sizeof(struct kvm_mp_state));
+//         kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_MP_STATE, &mp_state);
+//         kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_MP_STATE, &mp_state);
+//     kvm_vcpu_ioctl(CPU(cpu), KVM_SET_MP_STATE, &ivmshm[796]);
+//     struct kvm_xcrs xcrs = {};
+//     xcrs.nr_xcrs = 1;
+//     xcrs.flags = 0;
+//     xcrs.xcrs[0].xcr = 0;
+//     xcrs.xcrs[0].value = env->xcr0;
+//         printf("sizeod %ld\n", sizeof(struct kvm_xcrs));
+//     kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_XCRS, &ivmshm[798]);
+//     kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_XCRS, &xcrs);
+// #define KVM_MAX_CPUID_ENTRIES  100
+// struct kvm_cpuid3 {
+// 	__u32 nent;
+// 	__u32 padding;
+// 	struct kvm_cpuid_entry2 entries[100];
+// };
+// struct kvm_cpuid3 cpuid_data;
+//         printf("sizeod %ld\n", sizeof(cpuid_data));
+//         cpuid_data.padding = 0;
+//         // kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_CPUID2, &cpuid_data);
+//         cpuid_data.entries[0].function=1;
+//         cpuid_data.entries[0].index=0;
+//         cpuid_data.nent=100;
+//         // printf("cpuid eax=1 %x\n", cpuid_data.entries->function);
+//         kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_SUPPORTED_CPUID, &cpuid_data);
+//         for(int i=0; i < 100; i++){
+//             printf("cpuid func %x\n", cpuid_data.entries[i].function);
+//             printf("cpuid ind %x\n", cpuid_data.entries[i].index);
+//             printf("cpuid ecx %x\n", cpuid_data.entries[i].ecx);
+//             printf("cpuid eax %x\n", cpuid_data.entries[i].eax);
 
-        kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_SREGS2, &sregs);
-        kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_SREGS2, &sregs);
-        // kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_SREGS2, &sregs);
-        struct {
-            struct kvm_msrs info;
-            struct kvm_msr_entry entries[1];
-        } msr_data;
+//         }
+//         int res = kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_CPUID2, &cpuid_data);
+//         if (res <0){
+//             printf("KVM_SET_CPUID2 ERROR %d\n",res);
+//         }
+// // struct kvm_cpuid4 {
+// // 	__u32 nent;
+// // 	__u32 padding;
+// // 	struct kvm_cpuid_entry entries[100];
+// // };
+// // struct kvm_cpuid4 cpuid_data1;
+// //     // struct {
+// //     //     struct kvm_cpuid2 cpuid;
+// //     //     struct kvm_cpuid_entry2 entries[10];
+// //     // } cpuid_data1;
+// //         cpuid_data1.nent = 1;
+// //         cpuid_data1.padding = 0;
+// //         for(int i = 0; i<10; i++){
+// //             cpuid_data1.entries[i].function = 0x1;
+// //             cpuid_data1.entries[i].ecx = 0xdeadbeef;
+// //             cpuid_data1.entries[i].eax = 0xdeadbeef;
+// //             cpuid_data1.entries[i].ebx = 0xdeadbeef;
+// //             cpuid_data1.entries[i].edx = 0xdeadbeef;
+// //             cpuid_data1.entries[i].ecx = 0xf7fab223&~(1<<21);
+// //             cpuid_data1.entries[i].ecx = 0xdeadbeef;
+// //             cpuid_data1.entries[i].function = 0xdeadbeef;
+// //             cpuid_data1.entries[i].eax = 0x1;
+// //             cpuid_data1.entries[i].ebx = 0x0;
+// //             cpuid_data1.entries[i].edx = 0x0;
+// //         }
+// //         int res = kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_CPUID2, &cpuid_data1);
+// //         if (res <0){
+// //             printf("KVM_SET_CPUID2 ERROR %d\n",res);
+// //         }
 
-    kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_MSRS, &msr_data);
-    kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_MSRS, &msr_data);
+// KVMState *s = CPU(cpu)->kvm_state;
+//         uint32_t eax_0 = kvm_arch_get_supported_cpuid(s, 0x1, 0, R_EAX);
+//         uint32_t ebx_0 = kvm_arch_get_supported_cpuid(s, 0x1, 0, R_EBX);
+//         uint32_t ecx_0 = kvm_arch_get_supported_cpuid(s, 0x1, 0, R_ECX);
+//         uint32_t edx_0 = kvm_arch_get_supported_cpuid(s, 0x1, 0, R_EDX);
+//         uint32_t ecx_1 = kvm_arch_get_supported_cpuid(s, 0x1, 1, R_ECX);
+//         // uint32_t eax_1 = kvm_arch_get_supported_cpuid(s, 0x1, 1, R_EAX);
+//         // uint32_t ebx_1 = kvm_arch_get_supported_cpuid(s, 0x14, 1, R_EBX);
 
-#define KVM_MAX_CPUID_ENTRIES  100
+//         printf("cpuid eax=1 %x\n", eax_0);
+//         printf("cpuid eax=1 %x\n", ebx_0);
+//         printf("cpuid eax=1 %x\n", ecx_0);
+//         printf("cpuid eax=1 %x\n", edx_0);
+//         printf("cpuid eax=1 %x\n", ecx_1);
 
-        kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_GUEST_DEBUG,NULL);
-        struct kvm_interrupt intr;
-        intr.irq = 1;
-        kvm_vcpu_ioctl(CPU(cpu1), KVM_INTERRUPT, &intr);
-    // printf("%d\n",env->nested_state->size);
-            // printf("***** count %d\n",count);
-    printf("%d\n",env->nested_state->size);
-    printf("%llx\n",env->nested_state->hdr.vmx.vmcs12_pa);
-    if (env->nested_state&&(env->nested_state->size>=0x1000)&&(0xffffffffffffffff!=env->nested_state->hdr.vmx.vmcs12_pa)) {
-        count++;
-            // printf("***** count %d\n",count);
-        if(count%100 ==0){
-            printf("count %d\n",count);
-        }
-        struct {
-            struct kvm_cpuid2 cpuid;
-            struct kvm_cpuid_entry2 entries[KVM_MAX_CPUID_ENTRIES];
-        } cpuid_data;
-        cpuid_data.cpuid.padding = 0;
-        kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_CPUID2, &cpuid_data);
+//         struct kvm_regs regs;
+//         kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_REGS, &regs);
+//         kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_REGS, &regs);
+//         // kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_REGS, &ivmshm[800]);
+// //         // type = has_xsave2 ? KVM_GET_XSAVE2 : KVM_GET_XSAVE;
+// // kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_XSAVE, NULL);
+//         struct kvm_sregs sregs;
+//         kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_SREGS, &sregs);
+//         kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_SREGS, &sregs);
+//         // kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_SREGS, &ivmshm[870]);
 
-        // printf("*****************%d\n",env->nested_state->size);
-        // printf("hdr.vmxon_pa 0x%llx\n",env->nested_state->hdr.vmx.vmxon_pa);
-        // printf("vmcs12_pa 0x%llx\n",env->nested_state->hdr.vmx.vmcs12_pa);
-            /*
-            * Copy flags that are affected by reset from env->hflags and env->hflags2.
-            */
-        int max_nested_state_len = kvm_max_nested_state_length();
-        if (env->hflags & HF_GUEST_MASK) {
-            env->nested_state->flags |= KVM_STATE_NESTED_GUEST_MODE;
-        } else {
-            env->nested_state->flags &= ~KVM_STATE_NESTED_GUEST_MODE;
-        }
+//         kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_SREGS2, &sregs);
+//         kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_SREGS2, &sregs);
+//         // kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_SREGS2, &sregs);
+//         struct {
+//             struct kvm_msrs info;
+//             struct kvm_msr_entry entries[1];
+//         } msr_data;
 
-        /* Don't set KVM_STATE_NESTED_GIF_SET on VMX as it is illegal */
-        if (cpu_has_svm(env) && (env->hflags2 & HF2_GIF_MASK)) {
-            env->nested_state->flags |= KVM_STATE_NESTED_GIF_SET;
-        } else {
-            env->nested_state->flags &= ~KVM_STATE_NESTED_GIF_SET;
-        }
-        assert(env->nested_state->size <= max_nested_state_len);
-        // env->nested_state->flags |= 0x104;
-        // env->nested_state->hdr.vmx.vmcs12_pa=0xffffffffffffffff;
-        kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_NESTED_STATE, env->nested_state);
-    }
-    struct kvm_signal_mask sigmask;
-    kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_SIGNAL_MASK, &sigmask);
-    kvm_vcpu_enable_cap(CPU(cpu1),0,0);
-    }
-    }
-    }
-    else{
-        done_ioctl = 0;
-    }
+//     kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_MSRS, &msr_data);
+//     kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_MSRS, &msr_data);
+
+
+
+//         kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_GUEST_DEBUG,NULL);
+//         struct kvm_interrupt intr;
+//         intr.irq = 1;
+//         kvm_vcpu_ioctl(CPU(cpu1), KVM_INTERRUPT, &intr);
+//     // printf("%d\n",env->nested_state->size);
+//             // printf("***** count %d\n",count);
+//     printf("%d\n",env->nested_state->size);
+//     printf("%llx\n",env->nested_state->hdr.vmx.vmcs12_pa);
+//     if (env->nested_state&&(env->nested_state->size>=0x1000)&&(0xffffffffffffffff!=env->nested_state->hdr.vmx.vmcs12_pa)) {
+//         count++;
+//             // printf("***** count %d\n",count);
+//         if(count%100 ==0){
+//             printf("count %d\n",count);
+//         }
+
+
+//         // printf("*****************%d\n",env->nested_state->size);
+//         // printf("hdr.vmxon_pa 0x%llx\n",env->nested_state->hdr.vmx.vmxon_pa);
+//         // printf("vmcs12_pa 0x%llx\n",env->nested_state->hdr.vmx.vmcs12_pa);
+//             /*
+//             * Copy flags that are affected by reset from env->hflags and env->hflags2.
+//             */
+//         int max_nested_state_len = kvm_max_nested_state_length();
+//         if (env->hflags & HF_GUEST_MASK) {
+//             env->nested_state->flags |= KVM_STATE_NESTED_GUEST_MODE;
+//         } else {
+//             env->nested_state->flags &= ~KVM_STATE_NESTED_GUEST_MODE;
+//         }
+
+//         /* Don't set KVM_STATE_NESTED_GIF_SET on VMX as it is illegal */
+//         if (cpu_has_svm(env) && (env->hflags2 & HF2_GIF_MASK)) {
+//             env->nested_state->flags |= KVM_STATE_NESTED_GIF_SET;
+//         } else {
+//             env->nested_state->flags &= ~KVM_STATE_NESTED_GIF_SET;
+//         }
+//         assert(env->nested_state->size <= max_nested_state_len);
+//         // env->nested_state->flags |= 0x104;
+//         // env->nested_state->hdr.vmx.vmcs12_pa=0xffffffffffffffff;
+//         kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_NESTED_STATE, env->nested_state);
+//     }
+//     struct kvm_signal_mask sigmask;
+//     kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_SIGNAL_MASK, &sigmask);
+//     kvm_vcpu_enable_cap(CPU(cpu1),0,0);
+//     }
+//     }
+//     }
+//     else{
+//         done_ioctl = 0;
+//     }
 
 
 
