@@ -3856,10 +3856,10 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
             cov = (int)(kcov_cover[i+1]-kvm_intel_base);
             if (cov >= 0 && cov < MAX_KVM_INTEL){
                 cur_location = hash_int_to_16b(cov);
-                // if(afl_area_ptr[(cur_location ^ prev_location)] != 255){
-                if(afl_area_ptr[(cur_location)] != 255){
-                    afl_area_ptr[(cur_location)]++;
-                    // afl_area_ptr[(cur_location ^ prev_location)]++;
+                if(afl_area_ptr[(cur_location ^ prev_location)] != 0xff){
+                // if(afl_area_ptr[(cur_location)] != 0xff){
+                    // afl_area_ptr[(cur_location)]++;
+                    afl_area_ptr[(cur_location ^ prev_location)]++;
                     }
                 prev_location = cur_location >> 1;
                 // if (kvm_intel_coverd[cov] == 0){
@@ -3874,10 +3874,11 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
             } else {
                 cov = (int)(kcov_cover[i+1]-kvm_base);
                 if (cov >= 0 && cov < MAX_KVM){
-                    cur_location = hash_int_to_16b(0xfff00000 | cov);
-                    if(afl_area_ptr[(cur_location)] != 255){
-                        // afl_area_ptr[(cur_location ^ prev_location)]++;
-                        afl_area_ptr[(cur_location)]++;
+                    cur_location = hash_int_to_16b(cov);
+                    if(afl_area_ptr[(cur_location ^ prev_location)] != 0xff){
+                    // if(afl_area_ptr[(cur_location)] != 0xff){
+                        afl_area_ptr[(cur_location ^ prev_location)]++;
+                        // afl_area_ptr[(cur_location)]++;
                         }
                     prev_location = cur_location >> 1;      
                     // if (kflag != 1 && kvm_coverage[cov] == 0){
