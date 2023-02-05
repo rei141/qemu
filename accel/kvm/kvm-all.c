@@ -3445,52 +3445,7 @@ int kvm_cpu_exec(CPUState *cpu)
 // FILE * kvm_intel_coverage_file;
 // FILE * kvm_coverage_file;
 #define MSR_BUF_SIZE 4096
-// static void kvm_msr_buf_reset(X86CPU *cpu)
-// {
-//     memset(cpu->kvm_msr_buf, 0, MSR_BUF_SIZE);
-// }
 
-// static void kvm_msr_entry_add(X86CPU *cpu, uint32_t index, uint64_t value)
-// {
-//     struct kvm_msrs *msrs = cpu->kvm_msr_buf;
-//     void *limit = ((void *)msrs) + MSR_BUF_SIZE;
-//     struct kvm_msr_entry *entry = &msrs->entries[msrs->nmsrs];
-
-//     assert((void *)(entry + 1) <= limit);
-
-//     entry->index = index;
-//     entry->reserved = 0;
-//     entry->data = value;
-//     msrs->nmsrs++;
-// }
-
-// static int kvm_put_one_msr(X86CPU *cpu, int index, uint64_t value)
-// {
-//     kvm_msr_buf_reset(cpu);
-//     kvm_msr_entry_add(cpu, index, value);
-
-//     return kvm_vcpu_ioctl(CPU(cpu), KVM_SET_MSRS, cpu->kvm_msr_buf);
-// }
-
-// static int kvm_get_one_msr(X86CPU *cpu, int index, uint64_t *value)
-// {
-//     int ret;
-//     struct {
-//         struct kvm_msrs info;
-//         struct kvm_msr_entry entries[1];
-//     } msr_data = {
-//         .info.nmsrs = 1,
-//         .entries[0].index = index,
-//     };
-
-//     ret = kvm_vcpu_ioctl(CPU(cpu), KVM_GET_MSRS, &msr_data);
-//     if (ret < 0) {
-//         return ret;
-//     }
-//     assert(ret == 1);
-//     *value = msr_data.entries[0].data;
-//     return ret;
-// }
 
 uint16_t hash_int_to_16b(int val) {
     return (val >> 16) ^ (val &0x0000ffff);
@@ -3499,6 +3454,15 @@ int count;
 int done_ioctl;
 int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
 {
+    struct kvm_run *run = cpu->kvm_run;
+    int ret, run_ret;
+
+    DPRINTF("kvm_cpu_exec()\n");
+
+    int cov;
+    uint16_t cur_location, prev_location;
+    prev_location = 0;
+
     int bitmap_fd = shm_open("afl_bitmap", O_CREAT|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
     if (bitmap_fd == -1)
         perror("open"), exit(1);
@@ -3506,16 +3470,7 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
     if(err == -1){
         perror("ftruncate"), exit(1);
     }
-    // uint8_t * afl_area_ptr = (uint8_t *)mmap(NULL, 65536,
-    //                                 PROT_READ, MAP_SHARED, bitmap_fd, 0);
-    // if ((void *)afl_area_ptr == MAP_FAILED)
-    //     perror("mmap"), exit(1);   
-    // uint8_t bitmap_back[65536];
-    // memcpy(bitmap_back, afl_area_ptr,65536);
-    // if (munmap(afl_area_ptr, 65536))
-    //     perror("munmap"), exit(1);
-    // afl_area_ptr = (uint8_t *)mmap(NULL, 65536,
-    //                                 PROT_READ | PROT_WRITE, MAP_SHARED, bitmap_fd, 0);
+
     uint8_t * afl_area_ptr = (uint8_t *)mmap(NULL, 65536,
                                     PROT_READ | PROT_WRITE, MAP_SHARED, bitmap_fd, 0);                                    
     if ((void *)afl_area_ptr == MAP_FAILED)
@@ -3523,48 +3478,14 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
     // memcpy(afl_area_ptr,bitmap_back,65536);
     close(bitmap_fd);
 
-
-
-    // uint8_t *bitmap = afl_area_ptr
-    struct kvm_run *run = cpu->kvm_run;
-    int ret, run_ret;
-    // unsigned long kcov_n;
-    // int count = 0;
-    int cov;
-    uint16_t cur_location, prev_location;
-    // int wflag = 0;
-    // int kflag = 0;
-    prev_location = 0;
-    DPRINTF("kvm_cpu_exec()\n");
-        /* Enable coverage collection on the current thread. */
-        // if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
-        //     perror("ioctl"), exit(1);
-        // /* Reset coverage from the tail of the ioctl() call. */
-        // __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
-    // kvm_intel_coverage_file = fopen("/home/ishii/nestedFuzz/VMXbench/kvm_intel_coverage", "a");
-    // if (kvm_intel_coverage_file == NULL)
-    //     perror("fopen"), exit(1);
-    // kvm_coverage_file = fopen("/home/ishii/nestedFuzz/VMXbench/kvm_coverage", "a");
-    // if (kvm_coverage_file == NULL)
-    //     perror("fopen"), exit(1);
     if (kvm_arch_process_async_events(cpu)) {
         qatomic_set(&cpu->exit_request, 0);
         return EXCP_HLT;
     }
-        // X86CPU *cpu1 = X86_CPU(cpu);
-        // int ind=0x48b;
-        // ind = 0x40000073;
-        // uint64_t val=0;
-        // kvm_get_one_msr(cpu1,ind,&val);
-        // printf("******** 0x%lx *********\n",val);
-        // // val = val | (uint64_t)(1<<13)<<31;
-        // val = 1;
-        // int r1 = kvm_put_one_msr(cpu1,ind,val);
-        // kvm_get_one_msr(cpu1,ind,&val);
-        // printf("%d******** 0x%lx *********\n",r1,val);
-        // cpu = CPU(cpu1);
+
     qemu_mutex_unlock_iothread();
     cpu_exec_start(cpu);
+
     do {
         MemTxAttrs attrs;
 
@@ -3589,256 +3510,8 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
          */
         smp_rmb();
 
-
-
-
-        // if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
-        //     perror("ioctl"), exit(1);
-        // /* Reset coverage from the tail of the ioctl() call. */
-        // __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
         run_ret = kcov_kvm_vcpu_ioctl(cpu, KVM_RUN, 0);
-
-//         CPUX86State *env = &cpu1->env;
-
-//     if(ivmshm[4003] == 1){
-//             kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_NESTED_STATE, env->nested_state);
-//         // printf("%llx\n",env->nested_state->hdr.vmx.vmcs12_pa);
-//         if(0xffffffffffffffff!=env->nested_state->hdr.vmx.vmcs12_pa){
-
-        
-//         if(done_ioctl == 0){
-//         printf("***** ioctl fuzz *****\n");
-//         done_ioctl = 1;
-//         // printf("****** ivmshm[4001]=0\n");
-//         // ****************************************
-//         // struct kvm_vcpu_events {
-//         // 	struct {
-//         // 		__u8 injected;
-//         // 		__u8 nr;
-//         // 		__u8 has_error_code;
-//         // 		__u8 pending;
-//         // 		__u32 error_code;
-//         // 	} exception;
-//         // 	struct {
-//         // 		__u8 injected;
-//         // 		__u8 nr;
-//         // 		__u8 soft;
-//         // 		__u8 shadow;
-//         // 	} interrupt;
-//         // 	struct {
-//         // 		__u8 injected;
-//         // 		__u8 pending;
-//         // 		__u8 masked;
-//         // 		__u8 pad;
-//         // 	} nmi;
-//         // 	__u32 sipi_vector;
-//         // 	__u32 flags;
-//         // 	struct {
-//         // 		__u8 smm;
-//         // 		__u8 pending;
-//         // 		__u8 smm_inside_nmi;
-//         // 		__u8 latched_init;
-//         // 	} smi;
-//         // 	__u8 reserved[27];
-//         // 	__u8 exception_has_payload;
-//         // 	__u64 exception_payload;
-//         // };
-//         struct kvm_vcpu_events events;
-//         printf("sizeod %ld\n", sizeof(struct kvm_vcpu_events));
-//         // kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_VCPU_EVENTS, &events);
-//         // events.exception.injected = ivmshm[700] &0xf;
-//         // events.exception.nr = ivmshm[700] >> 8;
-//         // events.exception.has_error_code = ivmshm[701] &0xf;
-//         // events.exception.error_code = ivmshm[703]<<16 | ivmshm[702];
-
-//         // events.interrupt.injected = (env->interrupt_injected >= 0);
-//         // events.interrupt.nr = env->interrupt_injected;
-//         // events.interrupt.soft = env->soft_interrupt;
-//         // events.interrupt.shadow = env->soft_interrupt;
-
-//         // events.nmi.injected = env->nmi_injected;
-//         // events.nmi.pending = env->nmi_pending;
-//         // events.nmi.masked = !!(env->hflags2 & HF2_NMI_MASK);
-
-//         // events.sipi_vector = env->sipi_vector;
-//         kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_VCPU_EVENTS, &events);
-//         kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_VCPU_EVENTS, &ivmshm[700]);
-//     struct kvm_debugregs dbgregs;
-//         printf("sizeod %ld\n", sizeof(struct kvm_debugregs));
-//     kvm_vcpu_ioctl(CPU(cpu), KVM_GET_DEBUGREGS, &dbgregs);
-//     kvm_vcpu_ioctl(CPU(cpu), KVM_SET_DEBUGREGS, &dbgregs);
-//     kvm_vcpu_ioctl(CPU(cpu), KVM_SET_DEBUGREGS, &ivmshm[732]);
-
-//         struct kvm_mp_state mp_state;
-//         printf("sizeod %ld\n", sizeof(struct kvm_mp_state));
-//         kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_MP_STATE, &mp_state);
-//         kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_MP_STATE, &mp_state);
-//     kvm_vcpu_ioctl(CPU(cpu), KVM_SET_MP_STATE, &ivmshm[796]);
-//     struct kvm_xcrs xcrs = {};
-//     xcrs.nr_xcrs = 1;
-//     xcrs.flags = 0;
-//     xcrs.xcrs[0].xcr = 0;
-//     xcrs.xcrs[0].value = env->xcr0;
-//         printf("sizeod %ld\n", sizeof(struct kvm_xcrs));
-//     kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_XCRS, &ivmshm[798]);
-//     kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_XCRS, &xcrs);
-// #define KVM_MAX_CPUID_ENTRIES  100
-// struct kvm_cpuid3 {
-// 	__u32 nent;
-// 	__u32 padding;
-// 	struct kvm_cpuid_entry2 entries[100];
-// };
-// struct kvm_cpuid3 cpuid_data;
-//         printf("sizeod %ld\n", sizeof(cpuid_data));
-//         cpuid_data.padding = 0;
-//         // kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_CPUID2, &cpuid_data);
-//         cpuid_data.entries[0].function=1;
-//         cpuid_data.entries[0].index=0;
-//         cpuid_data.nent=100;
-//         // printf("cpuid eax=1 %x\n", cpuid_data.entries->function);
-//         kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_SUPPORTED_CPUID, &cpuid_data);
-//         for(int i=0; i < 100; i++){
-//             printf("cpuid func %x\n", cpuid_data.entries[i].function);
-//             printf("cpuid ind %x\n", cpuid_data.entries[i].index);
-//             printf("cpuid ecx %x\n", cpuid_data.entries[i].ecx);
-//             printf("cpuid eax %x\n", cpuid_data.entries[i].eax);
-
-//         }
-//         int res = kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_CPUID2, &cpuid_data);
-//         if (res <0){
-//             printf("KVM_SET_CPUID2 ERROR %d\n",res);
-//         }
-// // struct kvm_cpuid4 {
-// // 	__u32 nent;
-// // 	__u32 padding;
-// // 	struct kvm_cpuid_entry entries[100];
-// // };
-// // struct kvm_cpuid4 cpuid_data1;
-// //     // struct {
-// //     //     struct kvm_cpuid2 cpuid;
-// //     //     struct kvm_cpuid_entry2 entries[10];
-// //     // } cpuid_data1;
-// //         cpuid_data1.nent = 1;
-// //         cpuid_data1.padding = 0;
-// //         for(int i = 0; i<10; i++){
-// //             cpuid_data1.entries[i].function = 0x1;
-// //             cpuid_data1.entries[i].ecx = 0xdeadbeef;
-// //             cpuid_data1.entries[i].eax = 0xdeadbeef;
-// //             cpuid_data1.entries[i].ebx = 0xdeadbeef;
-// //             cpuid_data1.entries[i].edx = 0xdeadbeef;
-// //             cpuid_data1.entries[i].ecx = 0xf7fab223&~(1<<21);
-// //             cpuid_data1.entries[i].ecx = 0xdeadbeef;
-// //             cpuid_data1.entries[i].function = 0xdeadbeef;
-// //             cpuid_data1.entries[i].eax = 0x1;
-// //             cpuid_data1.entries[i].ebx = 0x0;
-// //             cpuid_data1.entries[i].edx = 0x0;
-// //         }
-// //         int res = kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_CPUID2, &cpuid_data1);
-// //         if (res <0){
-// //             printf("KVM_SET_CPUID2 ERROR %d\n",res);
-// //         }
-
-// KVMState *s = CPU(cpu)->kvm_state;
-//         uint32_t eax_0 = kvm_arch_get_supported_cpuid(s, 0x1, 0, R_EAX);
-//         uint32_t ebx_0 = kvm_arch_get_supported_cpuid(s, 0x1, 0, R_EBX);
-//         uint32_t ecx_0 = kvm_arch_get_supported_cpuid(s, 0x1, 0, R_ECX);
-//         uint32_t edx_0 = kvm_arch_get_supported_cpuid(s, 0x1, 0, R_EDX);
-//         uint32_t ecx_1 = kvm_arch_get_supported_cpuid(s, 0x1, 1, R_ECX);
-//         // uint32_t eax_1 = kvm_arch_get_supported_cpuid(s, 0x1, 1, R_EAX);
-//         // uint32_t ebx_1 = kvm_arch_get_supported_cpuid(s, 0x14, 1, R_EBX);
-
-//         printf("cpuid eax=1 %x\n", eax_0);
-//         printf("cpuid eax=1 %x\n", ebx_0);
-//         printf("cpuid eax=1 %x\n", ecx_0);
-//         printf("cpuid eax=1 %x\n", edx_0);
-//         printf("cpuid eax=1 %x\n", ecx_1);
-
-//         struct kvm_regs regs;
-//         kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_REGS, &regs);
-//         kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_REGS, &regs);
-//         // kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_REGS, &ivmshm[800]);
-// //         // type = has_xsave2 ? KVM_GET_XSAVE2 : KVM_GET_XSAVE;
-// // kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_XSAVE, NULL);
-//         struct kvm_sregs sregs;
-//         kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_SREGS, &sregs);
-//         kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_SREGS, &sregs);
-//         // kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_SREGS, &ivmshm[870]);
-
-//         kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_SREGS2, &sregs);
-//         kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_SREGS2, &sregs);
-//         // kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_SREGS2, &sregs);
-//         struct {
-//             struct kvm_msrs info;
-//             struct kvm_msr_entry entries[1];
-//         } msr_data;
-
-//     kvm_vcpu_ioctl(CPU(cpu1), KVM_GET_MSRS, &msr_data);
-//     kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_MSRS, &msr_data);
-
-
-
-//         kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_GUEST_DEBUG,NULL);
-//         struct kvm_interrupt intr;
-//         intr.irq = 1;
-//         kvm_vcpu_ioctl(CPU(cpu1), KVM_INTERRUPT, &intr);
-//     // printf("%d\n",env->nested_state->size);
-//             // printf("***** count %d\n",count);
-//     printf("%d\n",env->nested_state->size);
-//     printf("%llx\n",env->nested_state->hdr.vmx.vmcs12_pa);
-//     if (env->nested_state&&(env->nested_state->size>=0x1000)&&(0xffffffffffffffff!=env->nested_state->hdr.vmx.vmcs12_pa)) {
-//         count++;
-//             // printf("***** count %d\n",count);
-//         if(count%100 ==0){
-//             printf("count %d\n",count);
-//         }
-
-
-//         // printf("*****************%d\n",env->nested_state->size);
-//         // printf("hdr.vmxon_pa 0x%llx\n",env->nested_state->hdr.vmx.vmxon_pa);
-//         // printf("vmcs12_pa 0x%llx\n",env->nested_state->hdr.vmx.vmcs12_pa);
-//             /*
-//             * Copy flags that are affected by reset from env->hflags and env->hflags2.
-//             */
-//         int max_nested_state_len = kvm_max_nested_state_length();
-//         if (env->hflags & HF_GUEST_MASK) {
-//             env->nested_state->flags |= KVM_STATE_NESTED_GUEST_MODE;
-//         } else {
-//             env->nested_state->flags &= ~KVM_STATE_NESTED_GUEST_MODE;
-//         }
-
-//         /* Don't set KVM_STATE_NESTED_GIF_SET on VMX as it is illegal */
-//         if (cpu_has_svm(env) && (env->hflags2 & HF2_GIF_MASK)) {
-//             env->nested_state->flags |= KVM_STATE_NESTED_GIF_SET;
-//         } else {
-//             env->nested_state->flags &= ~KVM_STATE_NESTED_GIF_SET;
-//         }
-//         assert(env->nested_state->size <= max_nested_state_len);
-//         // env->nested_state->flags |= 0x104;
-//         // env->nested_state->hdr.vmx.vmcs12_pa=0xffffffffffffffff;
-//         kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_NESTED_STATE, env->nested_state);
-//     }
-//     struct kvm_signal_mask sigmask;
-//     kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_SIGNAL_MASK, &sigmask);
-//     kvm_vcpu_enable_cap(CPU(cpu1),0,0);
-//     }
-//     }
-//     }
-//     else{
-//         done_ioctl = 0;
-//     }
-
-
-
-
-        // kvm_vcpu_ioctl(CPU(cpu1), KVM_SET_NESTED_STATE, env->nested_state);
-        // kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
-        // /* Disable coverage collection for the current thread. After this call
-        // * coverage can be enabled for a different thread.
-        // */
-        // if (ioctl(kcov_fd, KCOV_DISABLE, 0))
-        //     perror("ioctl"), exit(1);
-        // printf("hello %ld\n",kcov_n);
-        prev_location++;
+prev_location++;
         // count = 0;
         for (int i = 0; i < kcov_n; i++) {
             cov = (int)(kcov_cover[i+1]-kvm_intel_base);
@@ -3874,15 +3547,9 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
                     //     kvm_coverage[cov] = 1;
                     //     kflag = 1;
                     //     } 
-                    }
-                } 
-            }
-        // msync(afl_area_ptr,65536,MS_ASYNC|MS_SYNC);
-        
-
-
-
-
+                }
+            } 
+        }
 
         attrs = kvm_arch_post_run(cpu, run);
 
@@ -3963,8 +3630,19 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
              */
             trace_kvm_dirty_ring_full(cpu->cpu_index);
             qemu_mutex_lock_iothread();
-            kvm_dirty_ring_reap(kvm_state);
+            /*
+             * We throttle vCPU by making it sleep once it exit from kernel
+             * due to dirty ring full. In the dirtylimit scenario, reaping
+             * all vCPUs after a single vCPU dirty ring get full result in
+             * the miss of sleep, so just reap the ring-fulled vCPU.
+             */
+            if (dirtylimit_in_service()) {
+                kvm_dirty_ring_reap(kvm_state, cpu);
+            } else {
+                kvm_dirty_ring_reap(kvm_state, NULL);
+            }
             qemu_mutex_unlock_iothread();
+            dirtylimit_vcpu_execute(cpu);
             ret = 0;
             break;
         case KVM_EXIT_SYSTEM_EVENT:
@@ -3995,66 +3673,51 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
             ret = kvm_arch_handle_exit(cpu, run);
             break;
         }
-    if (wflag != 0 ){
-        FILE * total_cov_file = fopen("/home/ishii/nestedFuzz/VMXbench/total_kvm_intel_coverage","w");
-        fwrite(total_coverage,sizeof(uint8_t),MAX_KVM_INTEL,total_cov_file);
-        fclose(total_cov_file);
-        
-        // time_t型は基準年からの秒数
-        // time_tのままでは使いにくい．time_tはtm構造体に相互に変換できる
-        struct timeval tv;
-        struct tm *tm;
+        if (wflag != 0 ){
+            FILE * total_cov_file = fopen("/home/ishii/nestedFuzz/VMXbench/total_kvm_intel_coverage","w");
+            fwrite(total_coverage,sizeof(uint8_t),MAX_KVM_INTEL,total_cov_file);
+            fclose(total_cov_file);
+            
+            // time_t型は基準年からの秒数
+            // time_tのままでは使いにくい．time_tはtm構造体に相互に変換できる
+            struct timeval tv;
+            struct tm *tm;
 
-        gettimeofday(&tv, NULL);
+            gettimeofday(&tv, NULL);
 
-        tm = localtime(&tv.tv_sec);
-        char f_name[100];
-        sprintf(f_name,"/home/ishii/nestedFuzz/VMXbench/record/n_intel_%02d_%02d_%02d_%02d_%02d_%06ld",tm->tm_mon+1, tm->tm_mday,\
-         tm->tm_hour, tm->tm_min, tm->tm_sec,tv.tv_usec);
-        FILE * record = fopen(f_name,"w");
-        fwrite(total_coverage,sizeof(uint8_t),MAX_KVM_INTEL,record);
-        fclose(record);
-        wflag=0;
-    }
-    if (kflag != 0 ){
-        FILE * total_cov_file = fopen("/home/ishii/nestedFuzz/VMXbench/total_kvm_coverage","w");
-        fwrite(kvm_coverage,sizeof(uint8_t),MAX_KVM,total_cov_file);
-        fclose(total_cov_file);
-        
-        // time_t型は基準年からの秒数
-        // time_tのままでは使いにくい．time_tはtm構造体に相互に変換できる
-        struct timeval tv;
-        struct tm *tm;
+            tm = localtime(&tv.tv_sec);
+            char f_name[100];
+            sprintf(f_name,"/home/ishii/nestedFuzz/VMXbench/record/n_intel_%02d_%02d_%02d_%02d_%02d_%06ld",tm->tm_mon+1, tm->tm_mday,\
+            tm->tm_hour, tm->tm_min, tm->tm_sec,tv.tv_usec);
+            FILE * record = fopen(f_name,"w");
+            fwrite(total_coverage,sizeof(uint8_t),MAX_KVM_INTEL,record);
+            fclose(record);
+            wflag=0;
+        }
+        if (kflag != 0 ){
+            FILE * total_cov_file = fopen("/home/ishii/nestedFuzz/VMXbench/total_kvm_coverage","w");
+            fwrite(kvm_coverage,sizeof(uint8_t),MAX_KVM,total_cov_file);
+            fclose(total_cov_file);
+            
+            // time_t型は基準年からの秒数
+            // time_tのままでは使いにくい．time_tはtm構造体に相互に変換できる
+            struct timeval tv;
+            struct tm *tm;
 
-        gettimeofday(&tv, NULL);
+            gettimeofday(&tv, NULL);
 
-        tm = localtime(&tv.tv_sec);
-        char f_name[100];
-        sprintf(f_name,"/home/ishii/nestedFuzz/VMXbench/record/n_kvm_%02d_%02d_%02d_%02d_%02d_%06ld",tm->tm_mon+1, tm->tm_mday,\
-         tm->tm_hour, tm->tm_min, tm->tm_sec,tv.tv_usec);
-        FILE * record = fopen(f_name,"w");
-        fwrite(kvm_coverage,sizeof(uint8_t),MAX_KVM,record);
-        fclose(record);
-        kflag=0;
-    }
+            tm = localtime(&tv.tv_sec);
+            char f_name[100];
+            sprintf(f_name,"/home/ishii/nestedFuzz/VMXbench/record/n_kvm_%02d_%02d_%02d_%02d_%02d_%06ld",tm->tm_mon+1, tm->tm_mday,\
+            tm->tm_hour, tm->tm_min, tm->tm_sec,tv.tv_usec);
+            FILE * record = fopen(f_name,"w");
+            fwrite(kvm_coverage,sizeof(uint8_t),MAX_KVM,record);
+            fclose(record);
+            kflag=0;
+        }
     } while (ret == 0);
-        // /* Disable coverage collection for the current thread. After this call
-        // * coverage can be enabled for a different thread.
-        // */
-        // if (ioctl(kcov_fd, KCOV_DISABLE, 0))
-        //     perror("ioctl"), exit(1);
-    // FILE * kvm_intel_bitmap = fopen("/home/ishii/nestedFuzz/VMXbench/shm_kvm_intel_bitmap", "wb");
-    // if (kvm_intel_bitmap == NULL)
-    //     perror("fopen"), exit(1);
-    // fwrite(afl_area_ptr,sizeof(uint8_t),65536,kvm_intel_bitmap);
-    // fclose(kvm_intel_bitmap);
-    // printf("world \n");
-    munmap(afl_area_ptr,65536);
-    // if (fclose(kvm_intel_coverage_file) == EOF)
-    //     perror("fclose"), exit(1);
-    // if (fclose(kvm_coverage_file) == EOF)
-    //     perror("fclose"), exit(1);
 
+    munmap(afl_area_ptr,65536);
     cpu_exec_end(cpu);
     qemu_mutex_lock_iothread();
 
