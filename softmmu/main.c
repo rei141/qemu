@@ -46,6 +46,7 @@
 // #define KCOV_DISABLE _IO('c', 101)
 // #define COVER_SIZE (64 << 14)
 
+
 // #define KCOV_TRACE_PC 0
 // #define KCOV_TRACE_CMP 1
 unsigned long kvm_intel_base;
@@ -55,7 +56,8 @@ unsigned long * kcov_cover;
 uint8_t total_coverage[MAX_KVM_INTEL];
 uint8_t kvm_coverage[MAX_KVM];
 uint16_t * ivmshm;
-int qemu_main(int argc, char **argv, char **envp)
+
+int qemu_default_main(void)
 {
     FILE * fkvm_intel = fopen("/sys/module/kvm_intel/sections/.text","r");
     if (fkvm_intel == NULL)
@@ -141,17 +143,19 @@ int qemu_main(int argc, char **argv, char **envp)
     if ((void *)ivmshm == MAP_FAILED)
         perror("mmap"), exit(1);
     ivmshm += 0x6;
+    int status;
 
-    qemu_init(argc, argv, envp);
-    qemu_main_loop();
+    status = qemu_main_loop();
+
     qemu_cleanup();
 
-    return 0;
+    return status;
 }
 
-#ifndef CONFIG_COCOA
+int (*qemu_main)(void) = qemu_default_main;
+
 int main(int argc, char **argv)
 {
-    return qemu_main(argc, argv, NULL);
+    qemu_init(argc, argv);
+    return qemu_main();
 }
-#endif
