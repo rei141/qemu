@@ -2624,9 +2624,116 @@ void qmp_x_exit_preconfig(Error **errp)
         qmp_cont(NULL);
     }
 }
+#include "../accel/kvm/kvm-cpus.h"
+// #define KCOV_INIT_TRACE _IOR('c', 1, unsigned long)
+// #define KCOV_ENABLE _IO('c', 100)
+// #define KCOV_DISABLE _IO('c', 101)
+// #define COVER_SIZE (64 << 14)
+
+
+// #define KCOV_TRACE_PC 0
+// #define KCOV_TRACE_CMP 1
+unsigned long kvm_intel_base;
+unsigned long kvm_base;
+int kcov_fd;
+unsigned long * kcov_cover;
+uint8_t total_coverage[MAX_KVM_INTEL];
+uint8_t kvm_coverage[MAX_KVM];
+uint8_t *current_intel_coverage[MAX_KVM_INTEL];
+uint8_t *current_kvm_coverage[MAX_KVM];
+uint16_t * ivmshm;
 
 void qemu_init(int argc, char **argv)
 {
+
+    FILE * fkvm_intel = fopen("/sys/module/kvm_intel/sections/.text","r");
+    if (fkvm_intel == NULL)
+        perror("fopen"), exit(1);
+
+    FILE * fkvm = fopen("/sys/module/kvm/sections/.text","r");
+    if (fkvm == NULL)
+        perror("fopen"), exit(1);
+
+    // start point of .text of kvm/kvm-intel
+    char kvm_intel_str[18];
+    char kvm_str[18];
+    // int count = 0;
+    int n = fread(kvm_intel_str, sizeof(char),18,fkvm_intel);
+    if(n != 18)
+        perror("fread"), exit(1);
+    kvm_intel_base = strtoul(kvm_intel_str, NULL,0);
+    // fprintf(kvm_intel_coverage_file, "0x%lx\n", kvm_intel_base);
+
+    n = fread(kvm_str, sizeof(char),18,fkvm);
+    if(n != 18)
+        perror("fread"), exit(1);
+    kvm_base = strtoul(kvm_str, NULL,0);
+    // fprintf(kvm_coverage_file, "0x%lx\n", kvm_base);
+
+    if (fclose(fkvm_intel) == EOF)
+        perror("fclose"), exit(1);
+    if (fclose(fkvm) == EOF)
+        perror("fclose"), exit(1);
+    printf("helloo\n");
+    if(kcov_fd == 0){
+        kcov_fd = open("/sys/kernel/debug/kcov", O_RDWR);
+        if (kcov_fd == -1)
+            perror("open"), exit(1);
+    }
+    printf(" !!!!%d\n",kcov_fd);
+    /* Setup trace mode and trace size. */
+    if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE))
+        perror("ioctl"), exit(1);
+    FILE * total_cov_file;
+    // int n;
+
+        /* Mmap buffer shared between kernel- and user-space. */
+    kcov_cover = (unsigned long *)mmap(NULL, COVER_SIZE * sizeof(unsigned long),PROT_READ | PROT_WRITE, MAP_SHARED, kcov_fd, 0);
+    // printf("hello  COVER_SIZE %p\n", kcov_cover);
+    if ((void *)kcov_cover == MAP_FAILED)
+        perror("mmap"), exit(1);
+
+    if ((total_cov_file = fopen("/home/ishii/nestedFuzz/VMXbench/total_kvm_intel_coverage","rb")) != NULL){
+        // memset(total_coverage, 0, sizeof(total_coverage));
+        int n = fread(total_coverage, sizeof(uint8_t), MAX_KVM_INTEL, total_cov_file);
+        if (n) {
+            fclose(total_cov_file);
+        }
+        else {
+            perror("fread error");
+        }
+    }
+    FILE * kvm_cov_file;
+    if ((kvm_cov_file = fopen("/home/ishii/nestedFuzz/VMXbench/total_kvm_coverage","rb")) != NULL){
+        // memset(kvm_coverage, 0, sizeof(total_coverage));
+        int n = fread(kvm_coverage, sizeof(uint8_t), MAX_KVM, kvm_cov_file);
+        if (n) {
+            fclose(kvm_cov_file);
+        }
+        else {
+            perror("fread error");
+        }
+    }
+    pid_t pid = getpid();
+    FILE *f_pid;
+    if ((f_pid = fopen("/home/ishii/nestedFuzz/VMXbench/qemu_pid","w")) != NULL){
+        // memset(kvm_coverage, 0, sizeof(total_coverage));
+        // int n = fread(kvm_coverage, sizeof(uint8_t), MAX_KVM, kvm_cov_file);
+        fprintf(f_pid,"%d", pid);
+        fclose(f_pid);
+
+    }
+    int fd = shm_open("ivshmem", O_CREAT|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
+
+    if (fd == -1)
+        perror("open"), exit(1);
+
+    ivmshm = (uint16_t *)mmap(NULL, 1024*1024,
+                                    PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if ((void *)ivmshm == MAP_FAILED)
+        perror("mmap"), exit(1);
+    ivmshm += 0x6;
+
     QemuOpts *opts;
     QemuOpts *icount_opts = NULL, *accel_opts = NULL;
     QemuOptsList *olist;

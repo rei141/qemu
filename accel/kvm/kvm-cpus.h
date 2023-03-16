@@ -39,10 +39,11 @@ extern unsigned long * kcov_cover;
 extern unsigned long kvm_intel_base;
 extern uint16_t * ivmshm;
 extern unsigned long kvm_base;
+extern int cflag;
 extern int wflag;
 extern int kflag;
-#define MAX_KVM_INTEL 0xc0000
-#define MAX_KVM 0x187000
+#define MAX_KVM_INTEL 0xc7000
+#define MAX_KVM 0x1b2000
 // extern uint8_t total_coverage[MAX_KVM_INTEL];
 // extern uint8_t kvm_coverage[MAX_KVM];
 

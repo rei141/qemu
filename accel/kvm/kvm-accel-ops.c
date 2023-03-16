@@ -34,6 +34,7 @@
 unsigned long kcov_n;
 
 
+int cflag;
 int wflag;
 int kflag;
 
@@ -47,6 +48,8 @@ int kflag;
 uint8_t bitmap[65536];
 extern uint8_t total_coverage[MAX_KVM_INTEL];
 extern uint8_t kvm_coverage[MAX_KVM];
+extern uint8_t current_intel_coverage[MAX_KVM_INTEL];
+extern uint8_t current_kvm_coverage[MAX_KVM];
 
 static void *kvm_vcpu_thread_fn(void *arg)
 {
@@ -62,7 +65,7 @@ static void *kvm_vcpu_thread_fn(void *arg)
     cpu->thread_id = qemu_get_thread_id();
     cpu->can_do_io = 1;
     current_cpu = cpu;
-
+    // printf("hello\n");
     r = kvm_init_vcpu(cpu, &error_fatal);
         
 
@@ -94,6 +97,7 @@ static void *kvm_vcpu_thread_fn(void *arg)
             // printf("%d\n",++count);
             // if (afl_shm_id_str != NULL) {
                 r = afl_shm_get_cov_kvm_cpu_exec(cpu);
+                // r = kvm_cpu_exec(cpu);
             // }
             // else {
                 // r = kvm_cpu_exec(cpu);
@@ -151,6 +155,16 @@ static void *kvm_vcpu_thread_fn(void *arg)
     cpu_thread_signal_destroyed(cpu);
     qemu_mutex_unlock_iothread();
     rcu_unregister_thread();
+    // if (cflag != 0){
+    //         FILE * current_cov_file = fopen("/home/ishii/nestedFuzz/VMXbench/record/current_intel_coverage","w");
+    //         fwrite(current_intel_coverage,sizeof(uint8_t),MAX_KVM_INTEL,current_cov_file);
+    //         fclose(current_cov_file);
+            
+    //         current_cov_file = fopen("/home/ishii/nestedFuzz/VMXbench/record/current_kvm_coverage","w");
+    //         fwrite(current_kvm_coverage,sizeof(uint8_t),MAX_KVM,current_cov_file);
+    //         fclose(current_cov_file);
+    //         cflag = 0;
+    //     }
     if (wflag != 0 ){
         FILE * total_cov_file = fopen("/home/ishii/nestedFuzz/VMXbench/total_kvm_intel_coverage","w");
         fwrite(total_coverage,sizeof(uint8_t),MAX_KVM_INTEL,total_cov_file);
@@ -193,8 +207,8 @@ static void *kvm_vcpu_thread_fn(void *arg)
         fclose(record);
         kflag=0;
     }
-    if (ioctl(kcov_fd, KCOV_DISABLE, 0))
-        perror("ioctl"), exit(1);
+    // if (ioctl(kcov_fd, KCOV_DISABLE, 0))
+    //     perror("ioctl"), exit(1);
     if (munmap(kcov_cover, COVER_SIZE * sizeof(unsigned long)))
         perror("munmap"), exit(1);
     if (close(kcov_fd))
