@@ -2637,14 +2637,40 @@ unsigned long kvm_intel_base;
 unsigned long kvm_base;
 int kcov_fd;
 unsigned long * kcov_cover;
-uint8_t total_coverage[MAX_KVM_INTEL];
-uint8_t kvm_coverage[MAX_KVM];
-uint8_t *current_intel_coverage[MAX_KVM_INTEL];
-uint8_t *current_kvm_coverage[MAX_KVM];
-uint16_t * ivmshm;
+uint8_t *current_intel_coverage;
+uint8_t *current_kvm_coverage;
+
 
 void qemu_init(int argc, char **argv)
 {
+    int kvm_intel_fd = shm_open("kvm_intel_coverage", O_CREAT|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
+    if (kvm_intel_fd == -1)
+        perror("open"), exit(1);
+    int err = ftruncate(kvm_intel_fd, MAX_KVM_INTEL);
+    if(err == -1){
+        perror("ftruncate"), exit(1);
+    }
+    int kvm_fd = shm_open("kvm_coverage", O_CREAT|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
+    if (kvm_fd == -1)
+        perror("open"), exit(1);
+    err = ftruncate(kvm_fd, MAX_KVM);
+    if(err == -1){
+        perror("ftruncate"), exit(1);
+    }
+
+    current_intel_coverage = (uint8_t *)mmap(NULL, MAX_KVM_INTEL,
+                                    PROT_READ | PROT_WRITE, MAP_SHARED, kvm_intel_fd, 0);
+    if ((void *)current_intel_coverage == MAP_FAILED)
+        perror("mmap"), exit(1);
+
+    current_kvm_coverage = (uint8_t *)mmap(NULL, MAX_KVM,
+                                    PROT_READ | PROT_WRITE, MAP_SHARED, kvm_fd, 0);
+
+
+    if ((void *)current_kvm_coverage == MAP_FAILED)
+        perror("mmap"), exit(1);
+    close(kvm_intel_fd);
+    close(kvm_fd);
 
     FILE * fkvm_intel = fopen("/sys/module/kvm_intel/sections/.text","r");
     if (fkvm_intel == NULL)
@@ -2674,7 +2700,7 @@ void qemu_init(int argc, char **argv)
         perror("fclose"), exit(1);
     if (fclose(fkvm) == EOF)
         perror("fclose"), exit(1);
-    printf("helloo\n");
+        
     if(kcov_fd == 0){
         kcov_fd = open("/sys/kernel/debug/kcov", O_RDWR);
         if (kcov_fd == -1)
@@ -2684,7 +2710,6 @@ void qemu_init(int argc, char **argv)
     /* Setup trace mode and trace size. */
     if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE))
         perror("ioctl"), exit(1);
-    FILE * total_cov_file;
     // int n;
 
         /* Mmap buffer shared between kernel- and user-space. */
@@ -2693,46 +2718,12 @@ void qemu_init(int argc, char **argv)
     if ((void *)kcov_cover == MAP_FAILED)
         perror("mmap"), exit(1);
 
-    if ((total_cov_file = fopen("/home/ishii/nestedFuzz/VMXbench/total_kvm_intel_coverage","rb")) != NULL){
-        // memset(total_coverage, 0, sizeof(total_coverage));
-        int n = fread(total_coverage, sizeof(uint8_t), MAX_KVM_INTEL, total_cov_file);
-        if (n) {
-            fclose(total_cov_file);
-        }
-        else {
-            perror("fread error");
-        }
-    }
-    FILE * kvm_cov_file;
-    if ((kvm_cov_file = fopen("/home/ishii/nestedFuzz/VMXbench/total_kvm_coverage","rb")) != NULL){
-        // memset(kvm_coverage, 0, sizeof(total_coverage));
-        int n = fread(kvm_coverage, sizeof(uint8_t), MAX_KVM, kvm_cov_file);
-        if (n) {
-            fclose(kvm_cov_file);
-        }
-        else {
-            perror("fread error");
-        }
-    }
     pid_t pid = getpid();
     FILE *f_pid;
     if ((f_pid = fopen("/home/ishii/nestedFuzz/VMXbench/qemu_pid","w")) != NULL){
-        // memset(kvm_coverage, 0, sizeof(total_coverage));
-        // int n = fread(kvm_coverage, sizeof(uint8_t), MAX_KVM, kvm_cov_file);
         fprintf(f_pid,"%d", pid);
         fclose(f_pid);
-
     }
-    int fd = shm_open("ivshmem", O_CREAT|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
-
-    if (fd == -1)
-        perror("open"), exit(1);
-
-    ivmshm = (uint16_t *)mmap(NULL, 1024*1024,
-                                    PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if ((void *)ivmshm == MAP_FAILED)
-        perror("mmap"), exit(1);
-    ivmshm += 0x6;
 
     QemuOpts *opts;
     QemuOpts *icount_opts = NULL, *accel_opts = NULL;

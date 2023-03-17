@@ -34,9 +34,6 @@
 unsigned long kcov_n;
 
 
-int cflag;
-int wflag;
-int kflag;
 
 
 
@@ -46,10 +43,8 @@ int kflag;
 // char kvm_coverd[MAX_KVM];
 
 uint8_t bitmap[65536];
-extern uint8_t total_coverage[MAX_KVM_INTEL];
-extern uint8_t kvm_coverage[MAX_KVM];
-extern uint8_t current_intel_coverage[MAX_KVM_INTEL];
-extern uint8_t current_kvm_coverage[MAX_KVM];
+extern uint8_t *current_intel_coverage;
+extern uint8_t *current_kvm_coverage;
 
 static void *kvm_vcpu_thread_fn(void *arg)
 {
@@ -94,121 +89,19 @@ static void *kvm_vcpu_thread_fn(void *arg)
     // int cov;
     do {
         if (cpu_can_run(cpu)) {
-            // printf("%d\n",++count);
-            // if (afl_shm_id_str != NULL) {
-                r = afl_shm_get_cov_kvm_cpu_exec(cpu);
-                // r = kvm_cpu_exec(cpu);
-            // }
-            // else {
-                // r = kvm_cpu_exec(cpu);
-        // kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
-        // printf("hello %ld\n",kcov_n);
-        // for (int i = 0; i < kcov_n; i++) {
-        //     cov = (int)(kcov_cover[i+1]-kvm_intel_base);
-        //     if (cov >= 0 && cov < MAX_KVM_INTEL){
-        //         // cur_location = hash_int_to_16b(cov);
-        //         // if(afl_area_ptr[(cur_location ^ prev_location)] != 255){
-        //         // if(afl_area_ptr[(cur_location)] != 255){
-        //         //     afl_area_ptr[(cur_location)]++;
-        //         //     // afl_area_ptr[(cur_location ^ prev_location)]++;
-        //         //     }
-        //         // prev_location = cur_location >> 1;
-        //         // if (kvm_intel_coverd[cov] == 0){
-        //         //     kvm_intel_coverd[cov] = 1;
-        //         //     fprintf(kvm_intel_coverage_file,"0x%x\n",cov);
-        //         // }
-        //         // if (wflag != 1 && total_coverage[cov] == 0){
-        //         if (total_coverage[cov] == 0){
-        //             total_coverage[cov] = 1;
-        //             // wflag = 1;
-        //         }
-        //     }
-        // }
-        // struct timeval tv;
-        // struct tm *tm;
-
-        // gettimeofday(&tv, NULL);
-
-        // tm = localtime(&tv.tv_sec);
-        // char f_name[100];
-        // sprintf(f_name,"record/n_intel_%02d_%02d_%02d_%02d_%02d_%06ld",tm->tm_mon+1, tm->tm_mday,
-        //  tm->tm_hour, tm->tm_min, tm->tm_sec,tv.tv_usec);
-        // FILE * record = fopen(f_name,"w");
-        // fwrite(total_coverage,sizeof(uint8_t),MAX_KVM_INTEL,record);
-        // fclose(record);
-            // }
+            r = afl_shm_get_cov_kvm_cpu_exec(cpu);
             if (r == EXCP_DEBUG) {
                 cpu_handle_guest_debug(cpu);
             }
         }
-    
-    //         end_time=clock();
-    // FILE * tmp = fopen("/home/ishii/nestedFuzz/VMXbench/tmp","a");
-    // fprintf(tmp,"%f\n",(double)(end_time-start_time)/CLOCKS_PER_SEC);
-    // start_time=clock();
         qemu_wait_io_event(cpu);
     } while (!cpu->unplug || cpu_can_run(cpu));
-    // printf("hello3\n");
-    // FILE * tmp = fopen("/home/ishii/work/VMXbench/hello","w");
-    // fprintf(tmp,"hello\n");
+
     kvm_destroy_vcpu(cpu);
     cpu_thread_signal_destroyed(cpu);
     qemu_mutex_unlock_iothread();
     rcu_unregister_thread();
-    // if (cflag != 0){
-    //         FILE * current_cov_file = fopen("/home/ishii/nestedFuzz/VMXbench/record/current_intel_coverage","w");
-    //         fwrite(current_intel_coverage,sizeof(uint8_t),MAX_KVM_INTEL,current_cov_file);
-    //         fclose(current_cov_file);
-            
-    //         current_cov_file = fopen("/home/ishii/nestedFuzz/VMXbench/record/current_kvm_coverage","w");
-    //         fwrite(current_kvm_coverage,sizeof(uint8_t),MAX_KVM,current_cov_file);
-    //         fclose(current_cov_file);
-    //         cflag = 0;
-    //     }
-    if (wflag != 0 ){
-        FILE * total_cov_file = fopen("/home/ishii/nestedFuzz/VMXbench/total_kvm_intel_coverage","w");
-        fwrite(total_coverage,sizeof(uint8_t),MAX_KVM_INTEL,total_cov_file);
-        fclose(total_cov_file);
-        
-        // time_t型は基準年からの秒数
-        // time_tのままでは使いにくい．time_tはtm構造体に相互に変換できる
-        struct timeval tv;
-        struct tm *tm;
 
-        gettimeofday(&tv, NULL);
-
-        tm = localtime(&tv.tv_sec);
-        char f_name[100];
-        sprintf(f_name,"/home/ishii/nestedFuzz/VMXbench/record/n_intel_%02d_%02d_%02d_%02d_%02d_%06ld",tm->tm_mon+1, tm->tm_mday,\
-         tm->tm_hour, tm->tm_min, tm->tm_sec,tv.tv_usec);
-        FILE * record = fopen(f_name,"w");
-        fwrite(total_coverage,sizeof(uint8_t),MAX_KVM_INTEL,record);
-        fclose(record);
-        wflag=0;
-    }
-    if (kflag != 0 ){
-        FILE * total_cov_file = fopen("/home/ishii/nestedFuzz/VMXbench/total_kvm_coverage","w");
-        fwrite(kvm_coverage,sizeof(uint8_t),MAX_KVM,total_cov_file);
-        fclose(total_cov_file);
-        
-        // time_t型は基準年からの秒数
-        // time_tのままでは使いにくい．time_tはtm構造体に相互に変換できる
-        struct timeval tv;
-        struct tm *tm;
-
-        gettimeofday(&tv, NULL);
-
-        tm = localtime(&tv.tv_sec);
-        char f_name[100];
-        sprintf(f_name,"/home/ishii/nestedFuzz/VMXbench/record/n_kvm_%02d_%02d_%02d_%02d_%02d_%06ld",tm->tm_mon+1, tm->tm_mday,\
-         tm->tm_hour, tm->tm_min, tm->tm_sec,tv.tv_usec);
-        FILE * record = fopen(f_name,"w");
-        fwrite(kvm_coverage,sizeof(uint8_t),MAX_KVM,record);
-        fclose(record);
-        kflag=0;
-    }
-    // if (ioctl(kcov_fd, KCOV_DISABLE, 0))
-    //     perror("ioctl"), exit(1);
     if (munmap(kcov_cover, COVER_SIZE * sizeof(unsigned long)))
         perror("munmap"), exit(1);
     if (close(kcov_fd))
