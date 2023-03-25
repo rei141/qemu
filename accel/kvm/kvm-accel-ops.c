@@ -31,9 +31,6 @@
 // #define KCOV_TRACE_CMP 1
 
 
-unsigned long kcov_n;
-
-
 
 
 
@@ -45,11 +42,10 @@ unsigned long kcov_n;
 uint8_t bitmap[65536];
 extern uint8_t *current_intel_coverage;
 extern uint8_t *current_kvm_coverage;
-
+// extern struct kcov_t kcov_list[0xfffff];
+extern pthread_key_t resource_key;
 static void *kvm_vcpu_thread_fn(void *arg)
 {
-
-
     CPUState *cpu = arg;
     int r;
 
@@ -60,7 +56,6 @@ static void *kvm_vcpu_thread_fn(void *arg)
     cpu->thread_id = qemu_get_thread_id();
     cpu->can_do_io = 1;
     current_cpu = cpu;
-    // printf("hello\n");
     r = kvm_init_vcpu(cpu, &error_fatal);
         
 
@@ -70,23 +65,33 @@ static void *kvm_vcpu_thread_fn(void *arg)
     cpu_thread_signal_created(cpu);
     qemu_guest_random_seed_thread_part2(cpu->random_seed);
 
+    int kcov_fd;
+    unsigned long * kcov_cover;
 
-    // clock_t start_time, end_time;
-    // start_time = clock();
+    kcov_fd = open("/sys/kernel/debug/kcov", O_RDWR);
+    if (kcov_fd == -1)
+        perror("open"), exit(1);
 
-    // printf("percpu start\n");
 
-    // kcov_intel_cover = (unsigned int *)malloc(COVER_SIZE * sizeof(unsigned int));
-    // if (kcov_intel_cover == NULL)
-    //     perror("malloc"), exit(1);
-    // const char *afl_shm_id_str = getenv("__AFL_SHM_ID");
-    // if (afl_shm_id_str != NULL) {
-    //     FILE * fuga = fopen("fuga","w");
-    //     fclose(fuga);
-    // }
+    /* Setup trace mode and trace size. */
+    if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE))
+        perror("ioctl"), exit(1);
 
-    // unsigned long kcov_n;
-    // int cov;
+        /* Mmap buffer shared between kernel- and user-space. */
+    kcov_cover = (unsigned long *)mmap(NULL, COVER_SIZE * sizeof(unsigned long),PROT_READ | PROT_WRITE, MAP_SHARED, kcov_fd, 0);
+    if ((void *)kcov_cover == MAP_FAILED)
+        perror("mmap"), exit(1);
+
+    kcov_t *resource = (kcov_t *) malloc(sizeof(kcov_t));
+    resource->enable = 1;
+    resource->kcov_fd = kcov_fd;
+    resource->kcov_cover = kcov_cover;
+    pthread_setspecific(resource_key, resource);
+
+    // kcov_list[tid].enable = 1;
+    // kcov_list[tid].kcov_fd = kcov_fd;
+    // kcov_list[tid].kcov_cover = kcov_cover;
+
     do {
         if (cpu_can_run(cpu)) {
             r = afl_shm_get_cov_kvm_cpu_exec(cpu);
@@ -96,6 +101,8 @@ static void *kvm_vcpu_thread_fn(void *arg)
         }
         qemu_wait_io_event(cpu);
     } while (!cpu->unplug || cpu_can_run(cpu));
+
+    resource->enable = 0;
 
     kvm_destroy_vcpu(cpu);
     cpu_thread_signal_destroyed(cpu);

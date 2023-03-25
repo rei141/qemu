@@ -2392,7 +2392,6 @@ static int kvm_init(MachineState *ms)
     } else if (mc->kvm_type) {
         type = mc->kvm_type(ms, NULL);
     }
-
     do {
         ret = kvm_ioctl(s, KVM_CREATE_VM, type);
         // ret = kcov_kvm_ioctl(s, KVM_CREATE_VM, type);
@@ -3033,6 +3032,8 @@ uint16_t hash_int_to_16b(int val) {
 }
 int count;
 int done_ioctl;
+// extern struct kcov_t kcov_list[0xfffff];
+extern pthread_key_t resource_key;
 int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
 {
     struct kvm_run *run = cpu->kvm_run;
@@ -3090,11 +3091,16 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
          * Matching barrier in kvm_eat_signals.
          */
         smp_rmb();
-
-        run_ret = kcov_kvm_vcpu_ioctl(cpu, KVM_RUN, 0);
+        unsigned long kcov_n;
+        run_ret = main_run_kcov_kvm_vcpu_ioctl(cpu, KVM_RUN, &kcov_n, 0);
         prev_location++;
-        // count = 0;
-        for (int i = 0; i < kcov_n; i++) {
+        // unsigned int tid = gettid();
+        // int kcov_fd;
+        unsigned long *kcov_cover;
+        kcov_t *resource = (kcov_t *) pthread_getspecific(resource_key);
+
+        kcov_cover = resource->kcov_cover;
+        for (unsigned long i = 0; i < kcov_n; i++) {
             cov = (int)(kcov_cover[i+1]-kvm_intel_base);
             if (cov >= 0 && cov < MAX_KVM_INTEL){
                 cur_location = hash_int_to_16b(cov);
@@ -3266,36 +3272,48 @@ int kvm_ioctl(KVMState *s, int type, ...)
     va_end(ap);
 
     trace_kvm_ioctl(type, arg);
-    if(kcov_fd == 0){
-        kcov_fd = open("/sys/kernel/debug/kcov", O_RDWR);
-        if (kcov_fd == -1)
-            perror("open"), exit(1);
-        if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE))
+
+    // unsigned int tid = gettid();
+    // printf("tid %d:0x%x\n",tid,tid);
+    int kcov_fd;
+    unsigned long *kcov_cover;
+    kcov_t *resource = (kcov_t *) pthread_getspecific(resource_key);
+    // if (resource != NULL){
+    //     printf("enable=%d, fd=%d\n", resource->enable, resource->kcov_fd);
+
+    // }
+    if (resource != NULL && resource->enable == 1) {
+        unsigned long kcov_n;
+        kcov_fd = resource->kcov_fd;
+        kcov_cover = resource->kcov_cover;
+        if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
+            perror("ioctl"), exit(1);
+        /* Reset coverage from the tail of the ioctl() call. */
+        __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
+        ret = ioctl(s->fd, type, arg);
+        kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
+        /* Disable coverage collection for the current thread. After this call
+        * coverage can be enabled for a different thread.
+        */
+        for (unsigned long i = 0; i < kcov_n; i++) {
+            int cov = (int)(kcov_cover[i+1]-kvm_intel_base);
+            if (cov >= 0 && cov < MAX_KVM_INTEL){
+                current_intel_coverage[cov] = 1;
+            }
+            else {
+                cov = (int)(kcov_cover[i+1]-kvm_base);
+                if (cov >= 0 && cov < MAX_KVM){  
+                    current_kvm_coverage[cov] = 1;
+                }
+            } 
+        }
+        if (ioctl(kcov_fd, KCOV_DISABLE, 0))
             perror("ioctl"), exit(1);
     }
-    if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
-        perror("ioctl"), exit(1);
-    /* Reset coverage from the tail of the ioctl() call. */
-    __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
-    ret = ioctl(s->fd, type, arg);
-    kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
-    /* Disable coverage collection for the current thread. After this call
-    * coverage can be enabled for a different thread.
-    */
-    for (int i = 0; i < kcov_n; i++) {
-        int cov = (int)(kcov_cover[i+1]-kvm_intel_base);
-        if (cov >= 0 && cov < MAX_KVM_INTEL){
-            current_intel_coverage[cov] = 1;
-        }
-        else {
-            cov = (int)(kcov_cover[i+1]-kvm_base);
-            if (cov >= 0 && cov < MAX_KVM){  
-                current_kvm_coverage[cov] = 1;
-            }
-        } 
+    else {
+        ret = ioctl(s->fd, type, arg);
     }
-    if (ioctl(kcov_fd, KCOV_DISABLE, 0))
-        perror("ioctl"), exit(1);
+
     if (ret == -1) {
         ret = -errno;
     }
@@ -3314,38 +3332,42 @@ int kcov_kvm_ioctl(KVMState *s, int type, ...)
 
     trace_kvm_ioctl(type, arg);
 
-    if(kcov_fd == 0){
-        kcov_fd = open("/sys/kernel/debug/kcov", O_RDWR);
-        if (kcov_fd == -1)
-            perror("open"), exit(1);
-        if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE))
+    // unsigned int tid = gettid();
+    int kcov_fd;
+    unsigned long *kcov_cover;
+
+    kcov_t *resource = (kcov_t *) pthread_getspecific(resource_key);
+    if (resource != NULL && resource->enable == 1) {
+        unsigned long kcov_n;
+        kcov_fd = resource->kcov_fd;
+        kcov_cover = resource->kcov_cover;
+        if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
             perror("ioctl"), exit(1);
-    }
-
-    if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
-        perror("ioctl"), exit(1);
-    /* Reset coverage from the tail of the ioctl() call. */
-
-    __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
-    ret = ioctl(s->fd, type, arg);
-    kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
-    /* Disable coverage collection for the current thread. After this call
-    * coverage can be enabled for a different thread.
-    */
-    for (int i = 0; i < kcov_n; i++) {
-        int cov = (int)(kcov_cover[i+1]-kvm_intel_base);
-        if (cov >= 0 && cov < MAX_KVM_INTEL){
-            current_intel_coverage[cov] = 1;
-        }
-        else {
-            cov = (int)(kcov_cover[i+1]-kvm_base);
-            if (cov >= 0 && cov < MAX_KVM){  
-                current_kvm_coverage[cov] = 1;
+        /* Reset coverage from the tail of the ioctl() call. */
+        __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
+        ret = ioctl(s->fd, type, arg);
+        kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
+        /* Disable coverage collection for the current thread. After this call
+        * coverage can be enabled for a different thread.
+        */
+        for (unsigned long i = 0; i < kcov_n; i++) {
+            int cov = (int)(kcov_cover[i+1]-kvm_intel_base);
+            if (cov >= 0 && cov < MAX_KVM_INTEL){
+                current_intel_coverage[cov] = 1;
             }
-        } 
+            else {
+                cov = (int)(kcov_cover[i+1]-kvm_base);
+                if (cov >= 0 && cov < MAX_KVM){  
+                    current_kvm_coverage[cov] = 1;
+                }
+            } 
+        }
+        if (ioctl(kcov_fd, KCOV_DISABLE, 0))
+            perror("ioctl"), exit(1);
+    }else {
+        ret = ioctl(s->fd, type, arg);
     }
-    if (ioctl(kcov_fd, KCOV_DISABLE, 0))
-        perror("ioctl"), exit(1);
+
     if (ret == -1) {
         ret = -errno;
     }
@@ -3363,7 +3385,43 @@ int kvm_vm_ioctl(KVMState *s, int type, ...)
     va_end(ap);
 
     trace_kvm_vm_ioctl(type, arg);
-    ret = ioctl(s->vmfd, type, arg);
+
+    // unsigned int tid = gettid();
+    int kcov_fd;
+    unsigned long *kcov_cover;
+
+    kcov_t *resource = (kcov_t *) pthread_getspecific(resource_key);
+    if (resource != NULL && resource->enable == 1) {
+        unsigned long kcov_n;
+        kcov_fd = resource->kcov_fd;
+        kcov_cover = resource->kcov_cover;
+        if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
+            perror("ioctl"), exit(1);
+        /* Reset coverage from the tail of the ioctl() call. */
+        __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
+        ret = ioctl(s->vmfd, type, arg);
+        kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
+        /* Disable coverage collection for the current thread. After this call
+        * coverage can be enabled for a different thread.
+        */
+        for (unsigned long i = 0; i < kcov_n; i++) {
+            int cov = (int)(kcov_cover[i+1]-kvm_intel_base);
+            if (cov >= 0 && cov < MAX_KVM_INTEL){
+                current_intel_coverage[cov] = 1;
+            }
+            else {
+                cov = (int)(kcov_cover[i+1]-kvm_base);
+                if (cov >= 0 && cov < MAX_KVM){  
+                    current_kvm_coverage[cov] = 1;
+                }
+            } 
+        }
+        if (ioctl(kcov_fd, KCOV_DISABLE, 0))
+            perror("ioctl"), exit(1);
+    }else {
+        ret = ioctl(s->vmfd, type, arg);
+    }
+    
     if (ret == -1) {
         ret = -errno;
     }
@@ -3380,46 +3438,43 @@ int kcov_kvm_vm_ioctl(KVMState *s, int type, ...)
     va_end(ap);
 
     trace_kvm_vm_ioctl(type, arg);
-    if(kcov_fd == 0){
-        kcov_fd = open("/sys/kernel/debug/kcov", O_RDWR);
-        if (kcov_fd == -1)
-            perror("open"), exit(1);
-        if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE))
+
+    // unsigned int tid = gettid();
+    int kcov_fd;
+    unsigned long *kcov_cover;
+
+    kcov_t *resource = (kcov_t *) pthread_getspecific(resource_key);
+    if (resource != NULL && resource->enable == 1) {
+        unsigned long kcov_n;
+        kcov_fd = resource->kcov_fd;
+        kcov_cover = resource->kcov_cover;
+        if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
             perror("ioctl"), exit(1);
-        printf("kcov_init\n");
-    }
-    // printf("do kcov_enable\n");
-    if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC)){
-    // printf("fail kcov_enable\n");
-    //     perror("ioctl"), exit(1);
-    ret = ioctl(s->vmfd, type, arg);
-    if (ret == -1) {
-        ret = -errno;
-    }
-    return ret;
-    }
-    // printf("kcov_enable\n");
-    /* Reset coverage from the tail of the ioctl() call. */
-    __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
-    ret = ioctl(s->vmfd, type, arg);
-    kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
-    /* Disable coverage collection for the current thread. After this call
-    * coverage can be enabled for a different thread.
-    */
-    for (int i = 0; i < kcov_n; i++) {
-        int cov = (int)(kcov_cover[i+1]-kvm_intel_base);
-        if (cov >= 0 && cov < MAX_KVM_INTEL){
-            current_intel_coverage[cov] = 1;
-        }
-        else {
-            cov = (int)(kcov_cover[i+1]-kvm_base);
-            if (cov >= 0 && cov < MAX_KVM){  
-                current_kvm_coverage[cov] = 1;
+        /* Reset coverage from the tail of the ioctl() call. */
+        __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
+        ret = ioctl(s->vmfd, type, arg);
+        kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
+        /* Disable coverage collection for the current thread. After this call
+        * coverage can be enabled for a different thread.
+        */
+        for (unsigned long i = 0; i < kcov_n; i++) {
+            int cov = (int)(kcov_cover[i+1]-kvm_intel_base);
+            if (cov >= 0 && cov < MAX_KVM_INTEL){
+                current_intel_coverage[cov] = 1;
             }
-        } 
+            else {
+                cov = (int)(kcov_cover[i+1]-kvm_base);
+                if (cov >= 0 && cov < MAX_KVM){  
+                    current_kvm_coverage[cov] = 1;
+                }
+            } 
+        }
+        if (ioctl(kcov_fd, KCOV_DISABLE, 0))
+            perror("ioctl"), exit(1);
+    }else {
+        ret = ioctl(s->vmfd, type, arg);
     }
-    if (ioctl(kcov_fd, KCOV_DISABLE, 0))
-        perror("ioctl"), exit(1);
+
     if (ret == -1) {
         ret = -errno;
     }
@@ -3454,38 +3509,43 @@ int kvm_vcpu_ioctl(CPUState *cpu, int type, ...)
     va_end(ap);
 
     trace_kvm_vcpu_ioctl(cpu->cpu_index, type, arg);
-    if(kcov_fd == 0){
-        kcov_fd = open("/sys/kernel/debug/kcov", O_RDWR);
-        if (kcov_fd == -1)
-            perror("open"), exit(1);
-        if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE))
-            perror("ioctl"), exit(1);
-    }
-    if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
-        perror("ioctl"), exit(1);
-    /* Reset coverage from the tail of the ioctl() call. */
-    __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
-    
-    ret = ioctl(cpu->kvm_fd, type, arg);
 
-    kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
-    /* Disable coverage collection for the current thread. After this call
-    * coverage can be enabled for a different thread.
-    */
-    for (int i = 0; i < kcov_n; i++) {
-        int cov = (int)(kcov_cover[i+1]-kvm_intel_base);
-        if (cov >= 0 && cov < MAX_KVM_INTEL){
-            current_intel_coverage[cov] = 1;
-        }
-        else {
-            cov = (int)(kcov_cover[i+1]-kvm_base);
-            if (cov >= 0 && cov < MAX_KVM){  
-                current_kvm_coverage[cov] = 1;
+    // unsigned int tid = gettid();
+    int kcov_fd;
+    unsigned long *kcov_cover;
+
+    kcov_t *resource = (kcov_t *) pthread_getspecific(resource_key);
+    if (resource != NULL && resource->enable == 1) {
+        unsigned long kcov_n;
+        kcov_fd = resource->kcov_fd;
+        kcov_cover = resource->kcov_cover;
+        if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
+            perror("ioctl"), exit(1);
+        /* Reset coverage from the tail of the ioctl() call. */
+        __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
+        ret = ioctl(cpu->kvm_fd, type, arg);
+        kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
+        /* Disable coverage collection for the current thread. After this call
+        * coverage can be enabled for a different thread.
+        */
+        for (unsigned long i = 0; i < kcov_n; i++) {
+            int cov = (int)(kcov_cover[i+1]-kvm_intel_base);
+            if (cov >= 0 && cov < MAX_KVM_INTEL){
+                current_intel_coverage[cov] = 1;
             }
-        } 
+            else {
+                cov = (int)(kcov_cover[i+1]-kvm_base);
+                if (cov >= 0 && cov < MAX_KVM){  
+                    current_kvm_coverage[cov] = 1;
+                }
+            } 
+        }
+        if (ioctl(kcov_fd, KCOV_DISABLE, 0))
+            perror("ioctl"), exit(1);
+    }else {
+        ret = ioctl(cpu->kvm_fd, type, arg);
     }
-    if (ioctl(kcov_fd, KCOV_DISABLE, 0))
-        perror("ioctl"), exit(1);
+
     if (ret == -1) {
         ret = -errno;
     }
@@ -3503,31 +3563,96 @@ int kcov_kvm_vcpu_ioctl(CPUState *cpu, int type, ...)
     va_end(ap);
 
     trace_kvm_vcpu_ioctl(cpu->cpu_index, type, arg);
-    if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
-        perror("ioctl"), exit(1);
-    /* Reset coverage from the tail of the ioctl() call. */
-    __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
-    
-    ret = ioctl(cpu->kvm_fd, type, arg);
 
-    kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
-    /* Disable coverage collection for the current thread. After this call
-    * coverage can be enabled for a different thread.
-    */
-    for (int i = 0; i < kcov_n; i++) {
-        int cov = (int)(kcov_cover[i+1]-kvm_intel_base);
-        if (cov >= 0 && cov < MAX_KVM_INTEL){
-            current_intel_coverage[cov] = 1;
-        }
-        else {
-            cov = (int)(kcov_cover[i+1]-kvm_base);
-            if (cov >= 0 && cov < MAX_KVM){  
-                current_kvm_coverage[cov] = 1;
+    // unsigned int tid = gettid();
+    int kcov_fd;
+    unsigned long *kcov_cover;
+
+    kcov_t *resource = (kcov_t *) pthread_getspecific(resource_key);
+    if (resource != NULL && resource->enable == 1) {
+        unsigned long kcov_n;
+        kcov_fd = resource->kcov_fd;
+        kcov_cover = resource->kcov_cover;
+        if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
+            perror("ioctl"), exit(1);
+        /* Reset coverage from the tail of the ioctl() call. */
+        __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
+        ret = ioctl(cpu->kvm_fd, type, arg);
+        kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
+        /* Disable coverage collection for the current thread. After this call
+        * coverage can be enabled for a different thread.
+        */
+        for (unsigned long i = 0; i < kcov_n; i++) {
+            int cov = (int)(kcov_cover[i+1]-kvm_intel_base);
+            if (cov >= 0 && cov < MAX_KVM_INTEL){
+                current_intel_coverage[cov] = 1;
             }
-        } 
+            else {
+                cov = (int)(kcov_cover[i+1]-kvm_base);
+                if (cov >= 0 && cov < MAX_KVM){  
+                    current_kvm_coverage[cov] = 1;
+                }
+            } 
+        }
+        if (ioctl(kcov_fd, KCOV_DISABLE, 0))
+            perror("ioctl"), exit(1);
+    }else {
+        ret = ioctl(cpu->kvm_fd, type, arg);
     }
-    if (ioctl(kcov_fd, KCOV_DISABLE, 0))
-        perror("ioctl"), exit(1);
+
+    if (ret == -1) {
+        ret = -errno;
+    }
+    return ret;
+}
+
+int main_run_kcov_kvm_vcpu_ioctl(CPUState *cpu, int type, unsigned long *kcov_n, ...)
+{
+    int ret;
+    void *arg;
+    va_list ap;
+
+    va_start(ap, kcov_n);
+    arg = va_arg(ap, void *);
+    va_end(ap);
+
+    trace_kvm_vcpu_ioctl(cpu->cpu_index, type, arg);
+
+    // unsigned int tid = gettid();
+    int kcov_fd;
+    unsigned long *kcov_cover;
+
+    kcov_t *resource = (kcov_t *) pthread_getspecific(resource_key);
+    if (resource != NULL && resource->enable == 1) {
+        kcov_fd = resource->kcov_fd;
+        kcov_cover = resource->kcov_cover;
+        if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
+            perror("ioctl"), exit(1);
+        /* Reset coverage from the tail of the ioctl() call. */
+        __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
+        ret = ioctl(cpu->kvm_fd, type, arg);
+        *kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
+        /* Disable coverage collection for the current thread. After this call
+        * coverage can be enabled for a different thread.
+        */
+        for (unsigned long i = 0; i < *kcov_n; i++) {
+            int cov = (int)(kcov_cover[i+1]-kvm_intel_base);
+            if (cov >= 0 && cov < MAX_KVM_INTEL){
+                current_intel_coverage[cov] = 1;
+            }
+            else {
+                cov = (int)(kcov_cover[i+1]-kvm_base);
+                if (cov >= 0 && cov < MAX_KVM){  
+                    current_kvm_coverage[cov] = 1;
+                }
+            } 
+        }
+        if (ioctl(kcov_fd, KCOV_DISABLE, 0))
+            perror("ioctl"), exit(1);
+    }else {
+        ret = ioctl(cpu->kvm_fd, type, arg);
+    }
+
     if (ret == -1) {
         ret = -errno;
     }

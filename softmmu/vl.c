@@ -2635,14 +2635,24 @@ void qmp_x_exit_preconfig(Error **errp)
 // #define KCOV_TRACE_CMP 1
 unsigned long kvm_intel_base;
 unsigned long kvm_base;
-int kcov_fd;
-unsigned long * kcov_cover;
+
 uint8_t *current_intel_coverage;
 uint8_t *current_kvm_coverage;
+
+// struct kcov_t kcov_list[0xfffff];
+pthread_key_t resource_key;
+
+// static void init_tls() {
+//     pthread_key_create(&resource_key, resource_destructor);
+// }
+static void resource_destructor(void *resource) {
+    free(resource);
+}
 
 
 void qemu_init(int argc, char **argv)
 {
+    pthread_key_create(&resource_key, resource_destructor);
     int kvm_intel_fd = shm_open("kvm_intel_coverage", O_CREAT|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
     if (kvm_intel_fd == -1)
         perror("open"), exit(1);
@@ -2700,23 +2710,7 @@ void qemu_init(int argc, char **argv)
         perror("fclose"), exit(1);
     if (fclose(fkvm) == EOF)
         perror("fclose"), exit(1);
-        
-    if(kcov_fd == 0){
-        kcov_fd = open("/sys/kernel/debug/kcov", O_RDWR);
-        if (kcov_fd == -1)
-            perror("open"), exit(1);
-    }
-    printf(" !!!!%d\n",kcov_fd);
-    /* Setup trace mode and trace size. */
-    if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE))
-        perror("ioctl"), exit(1);
-    // int n;
 
-        /* Mmap buffer shared between kernel- and user-space. */
-    kcov_cover = (unsigned long *)mmap(NULL, COVER_SIZE * sizeof(unsigned long),PROT_READ | PROT_WRITE, MAP_SHARED, kcov_fd, 0);
-    // printf("hello  COVER_SIZE %p\n", kcov_cover);
-    if ((void *)kcov_cover == MAP_FAILED)
-        perror("mmap"), exit(1);
 
     pid_t pid = getpid();
     FILE *f_pid;

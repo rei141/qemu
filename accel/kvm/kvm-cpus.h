@@ -32,9 +32,6 @@
 #define KCOV_TRACE_PC 0
 #define KCOV_TRACE_CMP 1
 
-extern int kcov_fd;
-extern unsigned long kcov_n;
-extern unsigned long * kcov_cover;
 
 extern unsigned long kvm_intel_base;
 extern unsigned long kvm_base;
@@ -42,6 +39,11 @@ extern unsigned long kvm_base;
 #define MAX_KVM_INTEL 0xc7000
 #define MAX_KVM 0x1b2000
 
+typedef struct {
+    int enable;
+    int kcov_fd;
+    unsigned long *kcov_cover;
+} kcov_t;
 
 int kvm_init_vcpu(CPUState *cpu, Error **errp);
 int kvm_cpu_exec(CPUState *cpu);

@@ -42,6 +42,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+extern pthread_key_t resource_key;
+
 int qemu_default_main(void)
 {
 
@@ -51,6 +53,7 @@ int qemu_default_main(void)
 
     qemu_cleanup();
 
+    pthread_key_delete(resource_key);
     return status;
 }
 
