@@ -3757,9 +3757,9 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
     return ret;
 }
 
-
 int kvm_ioctl(KVMState *s, int type, ...)
 {
+        DEBUG_PRINT("\n");
     int ret;
     void *arg;
     va_list ap;
@@ -3773,12 +3773,19 @@ int kvm_ioctl(KVMState *s, int type, ...)
         kcov_fd = open("/sys/kernel/debug/kcov", O_RDWR);
         if (kcov_fd == -1)
             perror("open"), exit(1);
-        if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE))
+        if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE)){
+            DEBUG_PRINT("ioctl\n");
             perror("ioctl"), exit(1);
+
+        }
     }
-    if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
+    if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC)){
+        DEBUG_PRINT("ioctl\n");
         perror("ioctl"), exit(1);
+    }
     /* Reset coverage from the tail of the ioctl() call. */
+    kcov_n = 0;
+
     __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
     ret = ioctl(s->fd, type, arg);
     kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
@@ -3822,6 +3829,7 @@ int kvm_ioctl(KVMState *s, int type, ...)
 
 int kcov_kvm_ioctl(KVMState *s, int type, ...)
 {
+        DEBUG_PRINT("\n");
     int ret;
     void *arg;
     va_list ap;
@@ -3836,13 +3844,20 @@ int kcov_kvm_ioctl(KVMState *s, int type, ...)
         kcov_fd = open("/sys/kernel/debug/kcov", O_RDWR);
         if (kcov_fd == -1)
             perror("open"), exit(1);
-        if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE))
+        if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE)){
+            DEBUG_PRINT("ioctl\n");
             perror("ioctl"), exit(1);
+
+        }
     }
 
-    if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
+    if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC)){
+        DEBUG_PRINT("ioctl\n");
         perror("ioctl"), exit(1);
+
+    }
     /* Reset coverage from the tail of the ioctl() call. */
+    kcov_n = 0;
 
     __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
     ret = ioctl(s->fd, type, arg);
@@ -3885,62 +3900,9 @@ int kcov_kvm_ioctl(KVMState *s, int type, ...)
     return ret;
 }
 
-// int kvm_vm_ioctl(KVMState *s, int type, ...)
-// {
-//     int ret;
-//     void *arg;
-//     va_list ap;
-
-//     va_start(ap, type);
-//     arg = va_arg(ap, void *);
-//     va_end(ap);
-
-//     trace_kvm_vm_ioctl(type, arg);
-//     if(kcov_fd == 0){
-//         kcov_fd = open("/sys/kernel/debug/kcov", O_RDWR);
-//         if (kcov_fd == -1)
-//             perror("open"), exit(1);
-//         if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE))
-//             perror("ioctl"), exit(1);
-//     }
-//     if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
-//         perror("ioctl"), exit(1);
-//     /* Reset coverage from the tail of the ioctl() call. */
-//     __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
-//     ret = ioctl(s->vmfd, type, arg);
-//     kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
-//     /* Disable coverage collection for the current thread. After this call
-//     * coverage can be enabled for a different thread.
-//     */
-//     for (int i = 0; i < kcov_n; i++) {
-//         int cov = (int)(kcov_cover[i+1]-kvm_intel_base);
-//         if (cov >= 0 && cov < MAX_KVM_INTEL){
-//             if (total_coverage[cov] == 0){
-//                 total_coverage[cov] = 1;
-//                 wflag = 1;
-//             }
-//         }
-//         else {
-//             cov = (int)(kcov_cover[i+1]-kvm_base);
-//             if (cov >= 0 && cov < MAX_KVM){  
-//                 // if (kflag != 1 && kvm_coverage[cov] == 0){
-//                 if (kvm_coverage[cov] == 0){
-//                     kvm_coverage[cov] = 1;
-//                     kflag = 1;
-//                 } 
-//             }
-//         } 
-//     }
-//     if (ioctl(kcov_fd, KCOV_DISABLE, 0))
-//         perror("ioctl"), exit(1);
-//     if (ret == -1) {
-//         ret = -errno;
-//     }
-//     return ret;
-// }
-
 int kvm_vm_ioctl(KVMState *s, int type, ...)
 {
+        DEBUG_PRINT("\n");
     int ret;
     void *arg;
     va_list ap;
@@ -3958,6 +3920,7 @@ int kvm_vm_ioctl(KVMState *s, int type, ...)
 }
 int kcov_kvm_vm_ioctl(KVMState *s, int type, ...)
 {
+        DEBUG_PRINT("\n");
     int ret;
     void *arg;
     va_list ap;
@@ -3971,22 +3934,36 @@ int kcov_kvm_vm_ioctl(KVMState *s, int type, ...)
         kcov_fd = open("/sys/kernel/debug/kcov", O_RDWR);
         if (kcov_fd == -1)
             perror("open"), exit(1);
-        if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE))
+        if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE)){
+        DEBUG_PRINT("ioctl\n");
             perror("ioctl"), exit(1);
+
+        }
         printf("kcov_init\n");
     }
     // printf("do kcov_enable\n");
     if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC)){
-    // printf("fail kcov_enable\n");
-    //     perror("ioctl"), exit(1);
     ret = ioctl(s->vmfd, type, arg);
     if (ret == -1) {
         ret = -errno;
     }
     return ret;
     }
+        //     printf("%03d : %s\n", errno, strerror(errno));
+        // DEBUG_PRINT("ioctl kcov_fd %d\n", kcov_fd);
+        // perror("ioctl"), exit(1);
+    // }
+    // {
+    // printf("fail kcov_enable\n");
+    // ret = ioctl(s->vmfd, type, arg);
+    // if (ret == -1) {
+    //     ret = -errno;
+    // }
+    // return ret;
+    // }
     // printf("kcov_enable\n");
     /* Reset coverage from the tail of the ioctl() call. */
+    kcov_n = 0;
     __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
     ret = ioctl(s->vmfd, type, arg);
     kcov_n = __atomic_load_n(&kcov_cover[0], __ATOMIC_RELAXED);
@@ -4028,25 +4005,9 @@ int kcov_kvm_vm_ioctl(KVMState *s, int type, ...)
     return ret;
 }
 
-// int kvm_vcpu_ioctl(CPUState *cpu, int type, ...)
-// {
-//     int ret;
-//     void *arg;
-//     va_list ap;
-
-//     va_start(ap, type);
-//     arg = va_arg(ap, void *);
-//     va_end(ap);
-
-//     trace_kvm_vcpu_ioctl(cpu->cpu_index, type, arg);
-//     ret = ioctl(cpu->kvm_fd, type, arg);
-//     if (ret == -1) {
-//         ret = -errno;
-//     }
-//     return ret;
-// }
 int kvm_vcpu_ioctl(CPUState *cpu, int type, ...)
 {
+        DEBUG_PRINT("\n");
     int ret;
     void *arg;
     va_list ap;
@@ -4066,6 +4027,8 @@ int kvm_vcpu_ioctl(CPUState *cpu, int type, ...)
     if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
         perror("ioctl"), exit(1);
     /* Reset coverage from the tail of the ioctl() call. */
+    kcov_n = 0;
+
     __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
     
     ret = ioctl(cpu->kvm_fd, type, arg);
@@ -4111,6 +4074,7 @@ int kvm_vcpu_ioctl(CPUState *cpu, int type, ...)
 
 int kcov_kvm_vcpu_ioctl(CPUState *cpu, int type, ...)
 {
+        DEBUG_PRINT("\n");
     int ret;
     void *arg;
     va_list ap;
@@ -4123,6 +4087,8 @@ int kcov_kvm_vcpu_ioctl(CPUState *cpu, int type, ...)
     if (ioctl(kcov_fd, KCOV_ENABLE, KCOV_TRACE_PC))
         perror("ioctl"), exit(1);
     /* Reset coverage from the tail of the ioctl() call. */
+    kcov_n = 0;
+
     __atomic_store_n(&kcov_cover[0], 0, __ATOMIC_RELAXED);
     
     ret = ioctl(cpu->kvm_fd, type, arg);
@@ -4168,6 +4134,7 @@ int kcov_kvm_vcpu_ioctl(CPUState *cpu, int type, ...)
 
 int kvm_device_ioctl(int fd, int type, ...)
 {
+        DEBUG_PRINT("\n");
     int ret;
     void *arg;
     va_list ap;

@@ -2674,16 +2674,18 @@ void qemu_init(int argc, char **argv)
         perror("fclose"), exit(1);
     if (fclose(fkvm) == EOF)
         perror("fclose"), exit(1);
-    printf("helloo\n");
+    // printf("helloo\n");
     if(kcov_fd == 0){
         kcov_fd = open("/sys/kernel/debug/kcov", O_RDWR);
         if (kcov_fd == -1)
             perror("open"), exit(1);
     }
-    printf(" !!!!%d\n",kcov_fd);
+    printf("kcov_fd = %d\n",kcov_fd);
     /* Setup trace mode and trace size. */
-    if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE))
+    if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE)){
+        DEBUG_PRINT("ioctl\n");
         perror("ioctl"), exit(1);
+    }
     FILE * total_cov_file;
     // int n;
 
