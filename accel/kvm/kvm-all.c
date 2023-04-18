@@ -419,7 +419,6 @@ int kvm_init_vcpu(CPUState *cpu, Error **errp)
     cpu->dirty_pages = 0;
     cpu->throttle_us_per_full = 0;
 
-
     mmap_size = kcov_kvm_ioctl(s, KVM_GET_VCPU_MMAP_SIZE, 0);
     if (mmap_size < 0) {
         ret = mmap_size;
@@ -3259,7 +3258,6 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
     qatomic_set(&cpu->exit_request, 0);
     return ret;
 }
-
 
 int kvm_ioctl(KVMState *s, int type, ...)
 {
