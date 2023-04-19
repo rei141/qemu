@@ -74,8 +74,10 @@ static void *kvm_vcpu_thread_fn(void *arg)
 
 
     /* Setup trace mode and trace size. */
-    if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE))
-        perror("ioctl"), exit(1);
+    if (ioctl(kcov_fd, KCOV_INIT_TRACE, COVER_SIZE)){
+            DEBUG_PRINT("ioctl\n");
+            perror("ioctl"), exit(1);
+        }
 
         /* Mmap buffer shared between kernel- and user-space. */
     kcov_cover = (unsigned long *)mmap(NULL, COVER_SIZE * sizeof(unsigned long),PROT_READ | PROT_WRITE, MAP_SHARED, kcov_fd, 0);
@@ -102,7 +104,6 @@ static void *kvm_vcpu_thread_fn(void *arg)
         qemu_wait_io_event(cpu);
     } while (!cpu->unplug || cpu_can_run(cpu));
 
-    resource->enable = 0;
 
     kvm_destroy_vcpu(cpu);
     cpu_thread_signal_destroyed(cpu);
@@ -113,7 +114,8 @@ static void *kvm_vcpu_thread_fn(void *arg)
         perror("munmap"), exit(1);
     if (close(kcov_fd))
         perror("close"), exit(1);
-
+    resource->enable = 0;
+    free(resource);
 
     // printf("%f\n",(double)(end_time-start_time)/CLOCKS_PER_SEC);
     return NULL;
