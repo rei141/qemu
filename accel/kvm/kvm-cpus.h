@@ -24,7 +24,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#define DEBUG_PRINT(...)     printf("%s(%d) %s:", __FILE__, __LINE__, __func__), printf(__VA_ARGS__)
+// #define DEBUG_PRINT(...)     printf("%s(%d) %s:", __FILE__, __LINE__, __func__), printf(__VA_ARGS__)
+#define DEBUG_PRINT(...)     
 #define KCOV_INIT_TRACE _IOR('c', 1, unsigned long)
 #define KCOV_ENABLE _IO('c', 100)
 #define KCOV_DISABLE _IO('c', 101)
@@ -33,6 +34,9 @@
 #define KCOV_TRACE_PC 0
 #define KCOV_TRACE_CMP 1
 
+extern int global_kcov_fd;
+extern unsigned long * global_kcov_cover;
+extern uint8_t *afl_area_ptr;
 
 extern unsigned long kvm_intel_base;
 extern unsigned long kvm_base;

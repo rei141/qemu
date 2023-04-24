@@ -2635,9 +2635,11 @@ void qmp_x_exit_preconfig(Error **errp)
 // #define KCOV_TRACE_CMP 1
 unsigned long kvm_intel_base;
 unsigned long kvm_base;
-
+int global_kcov_fd;
+unsigned long * global_kcov_cover;
 uint8_t *current_intel_coverage;
 uint8_t *current_kvm_coverage;
+uint8_t *afl_area_ptr;
 
 // struct kcov_t kcov_list[0xfffff];
 pthread_key_t resource_key;
@@ -2711,6 +2713,21 @@ void qemu_init(int argc, char **argv)
     if (fclose(fkvm) == EOF)
         perror("fclose"), exit(1);
 
+    if(global_kcov_fd == 0){
+        global_kcov_fd = open("/sys/kernel/debug/kcov", O_RDWR);
+        if (global_kcov_fd == -1)
+            perror("open"), exit(1);
+    }
+    /* Setup trace mode and trace size. */
+    if (ioctl(global_kcov_fd, KCOV_INIT_TRACE, COVER_SIZE)){
+        DEBUG_PRINT("ioctl\n");
+        perror("ioctl"), exit(1);
+    }
+
+    global_kcov_cover = (unsigned long *)mmap(NULL, COVER_SIZE * sizeof(unsigned long),PROT_READ | PROT_WRITE, MAP_SHARED, global_kcov_fd, 0);
+    if ((void *)global_kcov_cover == MAP_FAILED)
+        perror("mmap"), exit(1);
+
 
     pid_t pid = getpid();
     FILE *f_pid;
@@ -2718,6 +2735,21 @@ void qemu_init(int argc, char **argv)
         fprintf(f_pid,"%d", pid);
         fclose(f_pid);
     }
+
+    int bitmap_fd = shm_open("afl_bitmap", O_CREAT|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
+    if (bitmap_fd == -1)
+        perror("open"), exit(1);
+    err = ftruncate(bitmap_fd, 65536);
+    if(err == -1){
+        perror("ftruncate"), exit(1);
+    }
+
+    afl_area_ptr = (uint8_t *)mmap(NULL, 65536,
+                                    PROT_READ | PROT_WRITE, MAP_SHARED, bitmap_fd, 0);                                    
+    if ((void *)afl_area_ptr == MAP_FAILED)
+        perror("mmap"), exit(1);   
+
+    close(bitmap_fd);
 
     QemuOpts *opts;
     QemuOpts *icount_opts = NULL, *accel_opts = NULL;
