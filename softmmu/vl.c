@@ -135,6 +135,23 @@
 
 #include "config-host.h"
 
+#include "../accel/kvm/kvm-cpus.h"
+
+unsigned long kvm_intel_base;
+unsigned long kvm_base;
+int global_kcov_fd;
+unsigned long * global_kcov_cover;
+uint8_t *current_intel_coverage;
+uint8_t *current_kvm_coverage;
+uint8_t *afl_area_ptr;
+
+pthread_key_t resource_key;
+
+#define KVM_INTEL_COVERAGE_FILE "kvm_intel_coverage"
+#define KVM_COVERAGE_FILE "kvm_coverage"
+#define KVM_INTEL_TEXT_FILE "/sys/module/kvm_intel/sections/.text"
+#define KVM_TEXT_FILE "/sys/module/kvm/sections/.text"
+
 #define MAX_VIRTIO_CONSOLES 1
 
 typedef struct BlockdevOptionsQueueEntry {
@@ -2624,29 +2641,7 @@ void qmp_x_exit_preconfig(Error **errp)
         qmp_cont(NULL);
     }
 }
-#include "../accel/kvm/kvm-cpus.h"
-// #define KCOV_INIT_TRACE _IOR('c', 1, unsigned long)
-// #define KCOV_ENABLE _IO('c', 100)
-// #define KCOV_DISABLE _IO('c', 101)
-// #define COVER_SIZE (64 << 14)
 
-
-// #define KCOV_TRACE_PC 0
-// #define KCOV_TRACE_CMP 1
-unsigned long kvm_intel_base;
-unsigned long kvm_base;
-int global_kcov_fd;
-unsigned long * global_kcov_cover;
-uint8_t *current_intel_coverage;
-uint8_t *current_kvm_coverage;
-uint8_t *afl_area_ptr;
-
-// struct kcov_t kcov_list[0xfffff];
-pthread_key_t resource_key;
-
-// static void init_tls() {
-//     pthread_key_create(&resource_key, resource_destructor);
-// }
 static void resource_destructor(void *resource) {
     free(resource);
 }
@@ -2657,14 +2652,14 @@ void qemu_init(int argc, char **argv)
     pthread_key_create(&resource_key, resource_destructor);
     int kvm_intel_fd = shm_open("kvm_intel_coverage", O_CREAT|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
     if (kvm_intel_fd == -1)
-        perror("open"), exit(1);
+        perror("shm_open"), exit(1);
     int err = ftruncate(kvm_intel_fd, MAX_KVM_INTEL);
     if(err == -1){
         perror("ftruncate"), exit(1);
     }
     int kvm_fd = shm_open("kvm_coverage", O_CREAT|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
     if (kvm_fd == -1)
-        perror("open"), exit(1);
+        perror("shm_open"), exit(1);
     err = ftruncate(kvm_fd, MAX_KVM);
     if(err == -1){
         perror("ftruncate"), exit(1);
@@ -2728,13 +2723,6 @@ void qemu_init(int argc, char **argv)
     if ((void *)global_kcov_cover == MAP_FAILED)
         perror("mmap"), exit(1);
 
-
-    pid_t pid = getpid();
-    FILE *f_pid;
-    if ((f_pid = fopen("/home/ishii/nestedFuzz/VMXbench/qemu_pid","w")) != NULL){
-        fprintf(f_pid,"%d", pid);
-        fclose(f_pid);
-    }
 
     int bitmap_fd = shm_open("afl_bitmap", O_CREAT|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
     if (bitmap_fd == -1)
