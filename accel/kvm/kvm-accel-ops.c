@@ -28,17 +28,6 @@
 
 #include <time.h>
 
-// #define KCOV_TRACE_CMP 1
-
-
-
-
-
-// unsigned int * kcov_intel_cover;
-
-// char kvm_intel_coverd[MAX_KVM_INTEL];
-// char kvm_coverd[MAX_KVM];
-
 uint8_t bitmap[65536];
 extern uint8_t *current_intel_coverage;
 extern uint8_t *current_kvm_coverage;

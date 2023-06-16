@@ -137,9 +137,10 @@
 
 #include "../accel/kvm/kvm-cpus.h"
 
-unsigned long kvm_intel_base;
+unsigned long kvm_arch_base;
 unsigned long kvm_base;
-int global_kcov_fd;
+uint64_t max_kvm_arch;
+int global_kcov_fd; 
 unsigned long * global_kcov_cover;
 uint8_t *current_intel_coverage;
 uint8_t *current_kvm_coverage;
@@ -147,9 +148,9 @@ uint8_t *afl_area_ptr;
 
 pthread_key_t resource_key;
 
-#define KVM_INTEL_COVERAGE_FILE "kvm_intel_coverage"
+#define KVM_INTEL_COVERAGE_FILE "kvm_arch_coverage"
 #define KVM_COVERAGE_FILE "kvm_coverage"
-#define KVM_INTEL_TEXT_FILE "/sys/module/kvm_intel/sections/.text"
+#define KVM_INTEL_TEXT_FILE "/sys/module/kvm_arch/sections/.text"
 #define KVM_TEXT_FILE "/sys/module/kvm/sections/.text"
 
 #define MAX_VIRTIO_CONSOLES 1
@@ -2646,14 +2647,46 @@ static void resource_destructor(void *resource) {
     free(resource);
 }
 
+static void check_cpu_vendor(void) {
+    FILE *cpuinfo = fopen("/proc/cpuinfo", "rb");
+    char buffer[255];
+    char vendor[16];
+    
+    if (cpuinfo == NULL) {
+        perror("fopen");
+        return;
+    }
+
+    while (fgets(buffer, 255, cpuinfo)) {
+        if (strncmp(buffer, "vendor_id", 9) == 0) {
+            sscanf(buffer, "vendor_id : %s", vendor);
+
+            if (strcmp(vendor, "GenuineIntel") == 0) {
+                max_kvm_arch = MAX_KVM_INTEL;
+            } else if (strcmp(vendor, "AuthenticAMD") == 0) {
+                max_kvm_arch = MAX_KVM_AMD;
+            } else {
+                printf("This is a CPU from another vendor: %s\n", vendor);
+                // default value or another value
+                max_kvm_arch = 0;
+            }
+
+            break;
+        }
+    }
+
+    fclose(cpuinfo);
+}
 
 void qemu_init(int argc, char **argv)
 {
+    check_cpu_vendor();
+
     pthread_key_create(&resource_key, resource_destructor);
-    int kvm_intel_fd = shm_open("kvm_intel_coverage", O_CREAT|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
-    if (kvm_intel_fd == -1)
+    int kvm_arch_fd = shm_open("kvm_arch_coverage", O_CREAT|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
+    if (kvm_arch_fd == -1)
         perror("shm_open"), exit(1);
-    int err = ftruncate(kvm_intel_fd, MAX_KVM_INTEL);
+    int err = ftruncate(kvm_arch_fd, max_kvm_arch);
     if(err == -1){
         perror("ftruncate"), exit(1);
     }
@@ -2665,8 +2698,8 @@ void qemu_init(int argc, char **argv)
         perror("ftruncate"), exit(1);
     }
 
-    current_intel_coverage = (uint8_t *)mmap(NULL, MAX_KVM_INTEL,
-                                    PROT_READ | PROT_WRITE, MAP_SHARED, kvm_intel_fd, 0);
+    current_intel_coverage = (uint8_t *)mmap(NULL, max_kvm_arch,
+                                    PROT_READ | PROT_WRITE, MAP_SHARED, kvm_arch_fd, 0);
     if ((void *)current_intel_coverage == MAP_FAILED)
         perror("mmap"), exit(1);
 
@@ -2676,34 +2709,38 @@ void qemu_init(int argc, char **argv)
 
     if ((void *)current_kvm_coverage == MAP_FAILED)
         perror("mmap"), exit(1);
-    close(kvm_intel_fd);
+    close(kvm_arch_fd);
     close(kvm_fd);
 
-    FILE * fkvm_intel = fopen("/sys/module/kvm_intel/sections/.text","r");
-    if (fkvm_intel == NULL)
+    FILE * fkvm_arch;
+    if(max_kvm_arch == MAX_KVM_INTEL) {
+        fkvm_arch = fopen("/sys/module/kvm_intel/sections/.text","r");
+    }
+    else if(max_kvm_arch == MAX_KVM_AMD){
+        fkvm_arch = fopen("/sys/module/kvm_amd/sections/.text","r");
+    }
+    if (fkvm_arch == NULL)
         perror("fopen"), exit(1);
 
     FILE * fkvm = fopen("/sys/module/kvm/sections/.text","r");
     if (fkvm == NULL)
         perror("fopen"), exit(1);
 
-    // start point of .text of kvm/kvm-intel
-    char kvm_intel_str[18];
+    // start point of .text of kvm/kvm-intel or kvm-amd
+    char kvm_arch_str[18];
     char kvm_str[18];
     // int count = 0;
-    int n = fread(kvm_intel_str, sizeof(char),18,fkvm_intel);
+    int n = fread(kvm_arch_str, sizeof(char),18,fkvm_arch);
     if(n != 18)
         perror("fread"), exit(1);
-    kvm_intel_base = strtoul(kvm_intel_str, NULL,0);
-    // fprintf(kvm_intel_coverage_file, "0x%lx\n", kvm_intel_base);
+    kvm_arch_base = strtoul(kvm_arch_str, NULL,0);
 
     n = fread(kvm_str, sizeof(char),18,fkvm);
     if(n != 18)
         perror("fread"), exit(1);
     kvm_base = strtoul(kvm_str, NULL,0);
-    // fprintf(kvm_coverage_file, "0x%lx\n", kvm_base);
 
-    if (fclose(fkvm_intel) == EOF)
+    if (fclose(fkvm_arch) == EOF)
         perror("fclose"), exit(1);
     if (fclose(fkvm) == EOF)
         perror("fclose"), exit(1);
@@ -2722,22 +2759,6 @@ void qemu_init(int argc, char **argv)
     global_kcov_cover = (unsigned long *)mmap(NULL, COVER_SIZE * sizeof(unsigned long),PROT_READ | PROT_WRITE, MAP_SHARED, global_kcov_fd, 0);
     if ((void *)global_kcov_cover == MAP_FAILED)
         perror("mmap"), exit(1);
-
-
-    int bitmap_fd = shm_open("afl_bitmap", O_CREAT|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
-    if (bitmap_fd == -1)
-        perror("open"), exit(1);
-    err = ftruncate(bitmap_fd, 65536);
-    if(err == -1){
-        perror("ftruncate"), exit(1);
-    }
-
-    afl_area_ptr = (uint8_t *)mmap(NULL, 65536,
-                                    PROT_READ | PROT_WRITE, MAP_SHARED, bitmap_fd, 0);                                    
-    if ((void *)afl_area_ptr == MAP_FAILED)
-        perror("mmap"), exit(1);   
-
-    close(bitmap_fd);
 
     QemuOpts *opts;
     QemuOpts *icount_opts = NULL, *accel_opts = NULL;
@@ -2790,6 +2811,42 @@ void qemu_init(int argc, char **argv)
 
     /* first pass of option parsing */
     optind = 1;
+
+    int bitmap_f = 0;
+    if (argc > 1 && strstr(argv[1], "bitmap") != NULL) {
+        char *name = argv[1];
+        int bitmap_fd = shm_open(name, O_CREAT|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
+        if (bitmap_fd == -1)
+            perror("open"), exit(1);
+        err = ftruncate(bitmap_fd, 65536);
+        if(err == -1){
+            perror("ftruncate"), exit(1);
+        }
+
+        afl_area_ptr = (uint8_t *)mmap(NULL, 65536,
+                                        PROT_READ | PROT_WRITE, MAP_SHARED, bitmap_fd, 0);                                    
+        if ((void *)afl_area_ptr == MAP_FAILED)
+            perror("mmap"), exit(1);   
+
+        close(bitmap_fd);
+        bitmap_f = 1;
+    } else {
+        int bitmap_fd = shm_open("afl_bitmap", O_CREAT|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
+        if (bitmap_fd == -1)
+            perror("open"), exit(1);
+        err = ftruncate(bitmap_fd, 65536);
+        if(err == -1){
+            perror("ftruncate"), exit(1);
+        }
+
+        afl_area_ptr = (uint8_t *)mmap(NULL, 65536,
+                                        PROT_READ | PROT_WRITE, MAP_SHARED, bitmap_fd, 0);                                    
+        if ((void *)afl_area_ptr == MAP_FAILED)
+            perror("mmap"), exit(1);   
+
+        close(bitmap_fd);
+    }
+    optind += bitmap_f;
     while (optind < argc) {
         if (argv[optind][0] != '-') {
             /* disk image */
@@ -2813,6 +2870,7 @@ void qemu_init(int argc, char **argv)
 
     /* second pass of option parsing */
     optind = 1;
+    optind += bitmap_f;
     for(;;) {
         if (optind >= argc)
             break;

@@ -3018,11 +3018,6 @@ int kvm_cpu_exec(CPUState *cpu)
     return ret;
 }
 
-// #define MAX_KVM_INTEL 0xc0700
-// #define MAX_KVM 0x188900
-// char kvm_intel_coverd[MAX_KVM_INTEL];
-// char kvm_coverd[MAX_KVM];
-// uint8_t bitmap[65536];
 
 #define MSR_BUF_SIZE 4096
 
@@ -3032,7 +3027,7 @@ uint16_t hash_int_to_16b(int val) {
 }
 int count;
 int done_ioctl;
-// extern struct kcov_t kcov_list[0xfffff];
+
 extern pthread_key_t resource_key;
 int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
 {
@@ -3218,8 +3213,8 @@ static void kcov_save(unsigned long kcov_n, unsigned long *kcov_cover){
     uint16_t prev_location=0;
 
     for (unsigned long i = 0; i < kcov_n; i++) {
-        int cov = (int)(kcov_cover[i+1]-kvm_intel_base);
-        if (cov >= 0 && cov < MAX_KVM_INTEL){
+        int cov = (int)(kcov_cover[i+1]-kvm_arch_base);
+        if (cov >= 0 && cov < max_kvm_arch){
             current_intel_coverage[cov] = 1;
             cur_location = hash_int_to_16b(cov);
             prev_location = cur_location >> 1;
