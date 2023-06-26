@@ -3216,7 +3216,7 @@ static void kcov_save(unsigned long kcov_n, unsigned long *kcov_cover){
 
     for (unsigned long i = 0; i < kcov_n; i++) {
         int cov = (int)(kcov_cover[i+1]-kvm_arch_base);
-        if (cov >= 0 && cov < max_kvm_arch){
+        if (cov >= 0 && cov < MAX_KVM_ARCH){
             current_intel_coverage[cov] = 1;
             cur_location = hash_int_to_16b(cov);
             prev_location = cur_location >> 1;

@@ -37,14 +37,11 @@
 extern int global_kcov_fd;
 extern unsigned long * global_kcov_cover;
 extern uint8_t *afl_area_ptr;
-extern uint64_t max_kvm_arch;
+extern uint64_t MAX_KVM_ARCH;
+extern uint64_t MAX_KVM;
 
 extern unsigned long kvm_arch_base;
 extern unsigned long kvm_base;
-
-#define MAX_KVM_INTEL 0xc7000
-#define MAX_KVM_AMD 0x5f000
-#define MAX_KVM 0x1b2000
 
 typedef struct {
     int enable;

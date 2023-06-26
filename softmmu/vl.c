@@ -137,9 +137,15 @@
 
 #include "../accel/kvm/kvm-cpus.h"
 
+#include <libelf.h>
+#include <fcntl.h>
+#include <sys/utsname.h>
+#include <gelf.h>
+
 unsigned long kvm_arch_base;
 unsigned long kvm_base;
-uint64_t max_kvm_arch;
+uint64_t MAX_KVM_ARCH;
+uint64_t MAX_KVM;
 int global_kcov_fd; 
 unsigned long * global_kcov_cover;
 uint8_t *current_intel_coverage;
@@ -2648,33 +2654,124 @@ static void resource_destructor(void *resource) {
     free(resource);
 }
 
+static uint64_t check_text_size(char *filepath) {
+    Elf         *elf;
+    Elf_Scn     *scn = NULL;
+    GElf_Shdr   shdr;
+    int         fd;
+    size_t      shstrndx;  // Section header string table index
+
+    // Open the file
+    fd = open(filepath, O_RDONLY);
+    if (fd < 0) {
+        perror("open");
+        return 1;
+    }
+
+    if (elf_version(EV_CURRENT) == EV_NONE) {
+        // library out of date
+        exit(1);
+    }
+
+    elf = elf_begin(fd, ELF_C_READ, NULL);
+    
+    // Retrieve the section header string table index
+    if (elf_getshdrstrndx(elf, &shstrndx) != 0) {
+        perror("elf_getshdrstrndx");
+        exit(1);
+    }
+
+    while ((scn = elf_nextscn(elf, scn)) != NULL) {
+        if (gelf_getshdr(scn, &shdr) != &shdr) {
+            // error
+            exit(1);
+        }
+
+        if (shdr.sh_type == SHT_PROGBITS) {
+            char *name;
+            name = elf_strptr(elf, shstrndx, shdr.sh_name);  // Use shstrndx
+            if (name && strcmp(name, ".text") == 0) {
+                break;
+            }
+        }
+    }
+
+    elf_end(elf);
+    close(fd);
+
+    return (uint64_t)shdr.sh_size;
+}
+
 static void check_cpu_vendor(void) {
     FILE *cpuinfo = fopen("/proc/cpuinfo", "rb");
     char buffer[255];
     char vendor[16];
-    
+    struct utsname utbuffer;
+    char filepath[128];
+    FILE *fkvm_arch;
+    FILE *fkvm;
+    // start point of .text of kvm/kvm-intel or kvm-amd
+    char kvm_arch_str[18];
+    char kvm_str[18];
+
     if (cpuinfo == NULL) {
         perror("fopen");
         return;
     }
+
+    if (uname(&utbuffer) != 0) {
+        perror("uname");
+        return;
+    }
+
+    snprintf(filepath, 128, "/usr/lib/modules/%s/kernel/arch/x86/kvm/kvm.ko", utbuffer.release);
+
+    MAX_KVM = check_text_size(filepath);
+
+    fkvm = fopen("/sys/module/kvm/sections/.text","r");
+    if (fkvm == NULL)
+        perror("fopen"), exit(1);
+
+    int n = fread(kvm_str, sizeof(char),18,fkvm);
+    if(n != 18)
+        perror("fread"), exit(1);
+    kvm_base = strtoul(kvm_str, NULL,0);
+
+    if (fclose(fkvm) == EOF)
+        perror("fclose"), exit(1);
 
     while (fgets(buffer, 255, cpuinfo)) {
         if (strncmp(buffer, "vendor_id", 9) == 0) {
             sscanf(buffer, "vendor_id : %s", vendor);
 
             if (strcmp(vendor, "GenuineIntel") == 0) {
-                max_kvm_arch = MAX_KVM_INTEL;
+                snprintf(filepath, 128, "/usr/lib/modules/%s/kernel/arch/x86/kvm/kvm-intel.ko", utbuffer.release);
+                MAX_KVM_ARCH = check_text_size(filepath);
+                fkvm_arch = fopen("/sys/module/kvm_intel/sections/.text","r");
+                if (fkvm_arch == NULL)
+                    perror("fopen"), exit(1);
             } else if (strcmp(vendor, "AuthenticAMD") == 0) {
-                max_kvm_arch = MAX_KVM_AMD;
+                snprintf(filepath, 128, "/usr/lib/modules/%s/kernel/arch/x86/kvm/kvm-amd.ko", utbuffer.release);
+                MAX_KVM_ARCH = check_text_size(filepath);
+                fkvm_arch = fopen("/sys/module/kvm_amd/sections/.text","r");
+                if (fkvm_arch == NULL)
+                    perror("fopen"), exit(1);
             } else {
                 printf("This is a CPU from another vendor: %s\n", vendor);
                 // default value or another value
-                max_kvm_arch = 0;
+                MAX_KVM_ARCH = 0;
+                return;
             }
-
             break;
         }
     }
+
+    n = fread(kvm_arch_str, sizeof(char),18,fkvm_arch);
+    if(n != 18)
+        perror("fread"), exit(1);
+    kvm_arch_base = strtoul(kvm_arch_str, NULL,0);
+    if (fclose(fkvm_arch) == EOF)
+        perror("fclose"), exit(1);
 
     fclose(cpuinfo);
 }
@@ -2687,7 +2784,7 @@ void qemu_init(int argc, char **argv)
     int kvm_arch_fd = shm_open("kvm_arch_coverage", O_CREAT|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
     if (kvm_arch_fd == -1)
         perror("shm_open"), exit(1);
-    int err = ftruncate(kvm_arch_fd, max_kvm_arch);
+    int err = ftruncate(kvm_arch_fd, MAX_KVM_ARCH);
     if(err == -1){
         perror("ftruncate"), exit(1);
     }
@@ -2699,7 +2796,7 @@ void qemu_init(int argc, char **argv)
         perror("ftruncate"), exit(1);
     }
 
-    current_intel_coverage = (uint8_t *)mmap(NULL, max_kvm_arch,
+    current_intel_coverage = (uint8_t *)mmap(NULL, MAX_KVM_ARCH,
                                     PROT_READ | PROT_WRITE, MAP_SHARED, kvm_arch_fd, 0);
     if ((void *)current_intel_coverage == MAP_FAILED)
         perror("mmap"), exit(1);
@@ -2713,38 +2810,7 @@ void qemu_init(int argc, char **argv)
     close(kvm_arch_fd);
     close(kvm_fd);
 
-    FILE * fkvm_arch;
-    if(max_kvm_arch == MAX_KVM_INTEL) {
-        fkvm_arch = fopen("/sys/module/kvm_intel/sections/.text","r");
-    }
-    else if(max_kvm_arch == MAX_KVM_AMD){
-        fkvm_arch = fopen("/sys/module/kvm_amd/sections/.text","r");
-    }
-    if (fkvm_arch == NULL)
-        perror("fopen"), exit(1);
 
-    FILE * fkvm = fopen("/sys/module/kvm/sections/.text","r");
-    if (fkvm == NULL)
-        perror("fopen"), exit(1);
-
-    // start point of .text of kvm/kvm-intel or kvm-amd
-    char kvm_arch_str[18];
-    char kvm_str[18];
-    // int count = 0;
-    int n = fread(kvm_arch_str, sizeof(char),18,fkvm_arch);
-    if(n != 18)
-        perror("fread"), exit(1);
-    kvm_arch_base = strtoul(kvm_arch_str, NULL,0);
-
-    n = fread(kvm_str, sizeof(char),18,fkvm);
-    if(n != 18)
-        perror("fread"), exit(1);
-    kvm_base = strtoul(kvm_str, NULL,0);
-
-    if (fclose(fkvm_arch) == EOF)
-        perror("fclose"), exit(1);
-    if (fclose(fkvm) == EOF)
-        perror("fclose"), exit(1);
 
     if(global_kcov_fd == 0){
         global_kcov_fd = open("/sys/kernel/debug/kcov", O_RDWR);
