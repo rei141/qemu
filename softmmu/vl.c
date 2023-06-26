@@ -144,6 +144,7 @@ int global_kcov_fd;
 unsigned long * global_kcov_cover;
 uint8_t *current_intel_coverage;
 uint8_t *current_kvm_coverage;
+FILE *raw_trace_fp;
 uint8_t *afl_area_ptr;
 
 pthread_key_t resource_key;
@@ -2829,6 +2830,9 @@ void qemu_init(int argc, char **argv)
             perror("mmap"), exit(1);   
 
         close(bitmap_fd);
+        bitmap_f = 1;
+    } else if (argc > 1 && strstr(argv[1], "trace") != NULL) {
+        raw_trace_fp = fopen("coverage_trace", "w");
         bitmap_f = 1;
     } else {
         int bitmap_fd = shm_open("afl_bitmap", O_CREAT|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);

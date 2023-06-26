@@ -44,7 +44,7 @@ extern unsigned long kvm_base;
 
 #define MAX_KVM_INTEL 0xc7000
 #define MAX_KVM_AMD 0x5f000
-#define MAX_KVM 0x1af000
+#define MAX_KVM 0x1b2000
 
 typedef struct {
     int enable;

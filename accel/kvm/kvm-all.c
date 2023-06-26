@@ -83,6 +83,7 @@
 
 extern uint8_t *current_intel_coverage;
 extern uint8_t *current_kvm_coverage;
+extern FILE *raw_trace_fp;
 extern uint8_t bitmap[65536];
 
 
@@ -3211,6 +3212,7 @@ int afl_shm_get_cov_kvm_cpu_exec(CPUState *cpu)
 static void kcov_save(unsigned long kcov_n, unsigned long *kcov_cover){
     uint16_t cur_location=0;
     uint16_t prev_location=0;
+    fflush(raw_trace_fp);
 
     for (unsigned long i = 0; i < kcov_n; i++) {
         int cov = (int)(kcov_cover[i+1]-kvm_arch_base);
@@ -3218,6 +3220,9 @@ static void kcov_save(unsigned long kcov_n, unsigned long *kcov_cover){
             current_intel_coverage[cov] = 1;
             cur_location = hash_int_to_16b(cov);
             prev_location = cur_location >> 1;
+            if (raw_trace_fp != NULL) {
+                fprintf(raw_trace_fp, "0x%x\n", cov);
+            }
             DEBUG_PRINT("afl_area_ptr %p at 0x%x\n", afl_area_ptr,(cur_location ^ prev_location)&0xFFFF);
             if(afl_area_ptr == NULL) continue;
             if(afl_area_ptr[(cur_location ^ prev_location)&0xFFFF] != 0xff){
@@ -3230,6 +3235,9 @@ static void kcov_save(unsigned long kcov_n, unsigned long *kcov_cover){
                 current_kvm_coverage[cov] = 1;
                 cur_location = hash_int_to_16b(cov);
                 DEBUG_PRINT("afl_area_ptr %p at 0x%x\n", afl_area_ptr,(cur_location ^ prev_location)&0xFFFF);
+                if (raw_trace_fp != NULL) {
+                    fprintf(raw_trace_fp, "%x\n", cov);
+                }
                 if(afl_area_ptr == NULL) continue;
                 prev_location = cur_location >> 1;
                 if(afl_area_ptr[(cur_location ^ prev_location)&0xFFFF] != 0xff){
